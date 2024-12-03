@@ -44,18 +44,25 @@ fn prove_ecdsa_verification(
 }
 
 fn main() {
+    use std::time::Instant;
     // Generate a random secp256k1 keypair and sign the message.
     let signing_key = SigningKey::random(&mut OsRng); // Serialize with `::to_bytes()`
     let message = b"This is a message that will be signed, and verified within the zkVM";
     let signature: Signature = signing_key.sign(message);
 
     // Run signature verified in the zkVM guest and get the resulting receipt.
+    let start = Instant::now();
     let receipt = prove_ecdsa_verification(signing_key.verifying_key(), message, &signature);
+    let duration1 = start.elapsed();
 
     // Verify the receipt and then access the journal.
+    let start = Instant::now();
     receipt.verify(ECDSA_VERIFY_ID).unwrap();
+    let duration2 = start.elapsed();
     let (receipt_verifying_key, receipt_message): (EncodedPoint, Vec<u8>) =
         receipt.journal.decode().unwrap();
+    println!("ecdsa_verification receipt : {:?}", duration1);
+    println!("ecdsa receipt.verify : {:?}", duration2);
 
     println!(
         "Verified the signature over message {:?} with key {}",
