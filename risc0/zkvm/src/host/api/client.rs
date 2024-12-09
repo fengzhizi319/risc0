@@ -81,41 +81,51 @@ impl Client {
         }
     }
 
-    /// Prove the specified ELF binary.
+    /// 证明指定的 ELF 二进制文件。
     pub fn prove(
         &self,
         env: &ExecutorEnv<'_>,
         opts: &ProverOpts,
         binary: Asset,
     ) -> Result<ProveInfo> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
-
+        // 创建一个 ProveRequest 消息，包含执行环境、选项和接收输出的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::Prove(
                 pb::api::ProveRequest {
+                    // 将执行环境转换为 Protobuf 格式
                     env: Some(self.make_execute_env(env, binary.try_into()?)?),
+                    // 将选项转换为 Protobuf 格式
                     opts: Some(opts.clone().into()),
+                    // 创建一个内联的 AssetRequest 用于接收输出
                     receipt_out: Some(pb::api::AssetRequest {
                         kind: Some(pb::api::asset_request::Kind::Inline(())),
                     }),
                 },
             )),
         };
+        // 发送 ProveRequest 消息给服务器
         conn.send(request)?;
 
+        // 处理证明过程的响应
         let asset = self.prove_handler(&mut conn, env)?;
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
         }
 
+        // 将资产转换为字节数组
         let prove_info_bytes = asset.as_bytes()?;
+        // 解码字节数组为 ProveInfo Protobuf 对象
         let prove_info_pb = pb::core::ProveInfo::decode(prove_info_bytes)?;
+        // 将 Protobuf 对象转换为 ProveInfo 并返回
         prove_info_pb.try_into()
     }
 
-    /// Execute the specified ELF binary.
+    /// 执行指定的 ELF 二进制文件。
     pub fn execute<F>(
         &self,
         env: &ExecutorEnv<'_>,
@@ -126,21 +136,27 @@ impl Client {
     where
         F: FnMut(SegmentInfo, Asset) -> Result<()>,
     {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
 
+        // 创建一个 ExecuteRequest 消息，包含执行环境和输出段的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::Execute(
                 pb::api::ExecuteRequest {
+                    // 将执行环境转换为 Protobuf 格式
                     env: Some(self.make_execute_env(env, binary.try_into()?)?),
+                    // 将输出段请求转换为 Protobuf 格式
                     segments_out: Some(segments_out.try_into()?),
                 },
             )),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 ExecuteRequest 消息给服务器
         conn.send(request)?;
 
+        // 处理执行过程的响应
         let result = self.execute_handler(segment_callback, &mut conn, env);
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -149,31 +165,39 @@ impl Client {
         result
     }
 
-    /// Prove the specified segment.
+    /// 证明指定的段。
     pub fn prove_segment(
         &self,
         opts: &ProverOpts,
         segment: Asset,
         receipt_out: AssetRequest,
     ) -> Result<SegmentReceipt> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
 
+        // 创建一个 ProveSegmentRequest 消息，包含选项、段和接收输出的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::ProveSegment(
                 pb::api::ProveSegmentRequest {
+                    // 将选项转换为 Protobuf 格式
                     opts: Some(opts.clone().into()),
+                    // 将段转换为 Protobuf 格式
                     segment: Some(segment.try_into()?),
+                    // 将接收输出请求转换为 Protobuf 格式
                     receipt_out: Some(receipt_out.try_into()?),
                 },
             )),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 ProveSegmentRequest 消息给服务器
         conn.send(request)?;
 
+        // 接收 ProveSegmentReply 消息
         let reply: pb::api::ProveSegmentReply = conn.recv()?;
 
+        // 处理 ProveSegmentReply 消息
         let result = match reply.kind.ok_or(malformed_err())? {
             pb::api::prove_segment_reply::Kind::Ok(result) => {
+                // 将接收的字节数组解码为 SegmentReceipt Protobuf 对象
                 let receipt_bytes = result.receipt.ok_or(malformed_err())?.as_bytes()?;
                 let receipt_pb = pb::core::SegmentReceipt::decode(receipt_bytes)?;
                 receipt_pb.try_into()
@@ -181,6 +205,7 @@ impl Client {
             pb::api::prove_segment_reply::Kind::Error(err) => Err(err.into()),
         };
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -189,34 +214,37 @@ impl Client {
         result
     }
 
-    /// Run the lift program to transform a [SegmentReceipt] into a [SuccinctReceipt].
-    ///
-    /// The lift program verifies the rv32im circuit STARK proof inside the recursion circuit,
-    /// resulting in a recursion circuit STARK proof. This recursion proof has a single
-    /// constant-time verification procedure, with respect to the original segment length, and is then
-    /// used as the input to all other recursion programs (e.g. join, resolve, and identity_p254).
+    /// 运行 lift 程序，将 [SegmentReceipt] 转换为 [SuccinctReceipt]。
     pub fn lift(
         &self,
         opts: &ProverOpts,
         receipt: Asset,
         receipt_out: AssetRequest,
     ) -> Result<SuccinctReceipt<ReceiptClaim>> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
 
+        // 创建一个 LiftRequest 消息，包含选项、接收和接收输出的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::Lift(pb::api::LiftRequest {
+                // 将选项转换为 Protobuf 格式
                 opts: Some(opts.clone().into()),
+                // 将接收转换为 Protobuf 格式
                 receipt: Some(receipt.try_into()?),
+                // 将接收输出请求转换为 Protobuf 格式
                 receipt_out: Some(receipt_out.try_into()?),
             })),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 LiftRequest 消息给服务器
         conn.send(request)?;
 
+        // 接收 LiftReply 消息
         let reply: pb::api::LiftReply = conn.recv()?;
 
+        // 处理 LiftReply 消息
         let result = match reply.kind.ok_or(malformed_err())? {
             pb::api::lift_reply::Kind::Ok(result) => {
+                // 将接收的字节数组解码为 SuccinctReceipt Protobuf 对象
                 let receipt_bytes = result.receipt.ok_or(malformed_err())?.as_bytes()?;
                 let receipt_pb = pb::core::SuccinctReceipt::decode(receipt_bytes)?;
                 receipt_pb.try_into()
@@ -224,6 +252,7 @@ impl Client {
             pb::api::lift_reply::Kind::Error(err) => Err(err.into()),
         };
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -232,10 +261,7 @@ impl Client {
         result
     }
 
-    /// Run the join program to compress two [SuccinctReceipt]s in the same session into one.
-    ///
-    /// By repeated application of the join program, any number of receipts for execution spans within
-    /// the same session can be compressed into a single receipt for the entire session.
+    /// 运行 join 程序，将两个 [SuccinctReceipt] 合并为一个。
     pub fn join(
         &self,
         opts: &ProverOpts,
@@ -243,23 +269,32 @@ impl Client {
         right_receipt: Asset,
         receipt_out: AssetRequest,
     ) -> Result<SuccinctReceipt<ReceiptClaim>> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
 
+        // 创建一个 JoinRequest 消息，包含选项、左接收、右接收和接收输出的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::Join(pb::api::JoinRequest {
+                // 将选项转换为 Protobuf 格式
                 opts: Some(opts.clone().into()),
+                // 将左接收转换为 Protobuf 格式
                 left_receipt: Some(left_receipt.try_into()?),
+                // 将右接收转换为 Protobuf 格式
                 right_receipt: Some(right_receipt.try_into()?),
+                // 将接收输出请求转换为 Protobuf 格式
                 receipt_out: Some(receipt_out.try_into()?),
             })),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 JoinRequest 消息给服务器
         conn.send(request)?;
 
+        // 接收 JoinReply 消息
         let reply: pb::api::JoinReply = conn.recv()?;
 
+        // 处理 JoinReply 消息
         let result = match reply.kind.ok_or(malformed_err())? {
             pb::api::join_reply::Kind::Ok(result) => {
+                // 将接收的字节数组解码为 SuccinctReceipt Protobuf 对象
                 let receipt_bytes = result.receipt.ok_or(malformed_err())?.as_bytes()?;
                 let receipt_pb = pb::core::SuccinctReceipt::decode(receipt_bytes)?;
                 receipt_pb.try_into()
@@ -267,6 +302,7 @@ impl Client {
             pb::api::join_reply::Kind::Error(err) => Err(err.into()),
         };
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -275,12 +311,7 @@ impl Client {
         result
     }
 
-    /// Run the resolve program to remove an assumption from a conditional [SuccinctReceipt] upon
-    /// verifying a [SuccinctReceipt] proving the validity of the assumption.
-    ///
-    /// By applying the resolve program, a conditional receipt (i.e. a receipt for an execution
-    /// using the `env::verify` API to logically verify a receipt) can be made into an
-    /// unconditional receipt.
+    /// 运行 resolve 程序，移除条件 [SuccinctReceipt] 中的假设。
     pub fn resolve(
         &self,
         opts: &ProverOpts,
@@ -288,25 +319,34 @@ impl Client {
         assumption_receipt: Asset,
         receipt_out: AssetRequest,
     ) -> Result<SuccinctReceipt<ReceiptClaim>> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
 
+        // 创建一个 ResolveRequest 消息，包含选项、条件接收、假设接收和接收输出的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::Resolve(
                 pb::api::ResolveRequest {
+                    // 将选项转换为 Protobuf 格式
                     opts: Some(opts.clone().into()),
+                    // 将条件接收转换为 Protobuf ���式
                     conditional_receipt: Some(conditional_receipt.try_into()?),
+                    // 将假设接收转换为 Protobuf 格式
                     assumption_receipt: Some(assumption_receipt.try_into()?),
+                    // 将接收输出请求转换为 Protobuf 格式
                     receipt_out: Some(receipt_out.try_into()?),
                 },
             )),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 ResolveRequest 消息给服务器
         conn.send(request)?;
 
+        // 接收 ResolveReply 消息
         let reply: pb::api::ResolveReply = conn.recv()?;
 
+        // 处理 ResolveReply 消息
         let result = match reply.kind.ok_or(malformed_err())? {
             pb::api::resolve_reply::Kind::Ok(result) => {
+                // 将接收的字节数组解码为 SuccinctReceipt Protobuf 对象
                 let receipt_bytes = result.receipt.ok_or(malformed_err())?.as_bytes()?;
                 let receipt_pb = pb::core::SuccinctReceipt::decode(receipt_bytes)?;
                 receipt_pb.try_into()
@@ -314,6 +354,7 @@ impl Client {
             pb::api::resolve_reply::Kind::Error(err) => Err(err.into()),
         };
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -322,35 +363,39 @@ impl Client {
         result
     }
 
-    /// Prove the verification of a recursion receipt using the Poseidon254 hash function for FRI.
-    ///
-    /// The identity_p254 program is used as the last step in the prover pipeline before running the
-    /// Groth16 prover. In Groth16 over BN254, it is much more efficient to verify a STARK that was
-    /// produced with Poseidon over the BN254 base field compared to using Poseidon over BabyBear.
+    /// 证明递归接收的验证，使用 Poseidon254 哈希函数进行 FRI。
     pub fn identity_p254(
         &self,
         opts: &ProverOpts,
         receipt: Asset,
         receipt_out: AssetRequest,
     ) -> Result<SuccinctReceipt<ReceiptClaim>> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
 
+        // 创建一个 IdentityP254Request 消息，包含选项、接收和接收输出的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::IdentityP254(
                 pb::api::IdentityP254Request {
+                    // 将选项转换为 Protobuf 格式
                     opts: Some(opts.clone().into()),
+                    // 将接收转换为 Protobuf 格式
                     receipt: Some(receipt.try_into()?),
+                    // 将接收输出请求转换为 Protobuf 格式
                     receipt_out: Some(receipt_out.try_into()?),
                 },
             )),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 IdentityP254Request 消息给服务器
         conn.send(request)?;
 
+        // 接收 IdentityP254Reply 消息
         let reply: pb::api::IdentityP254Reply = conn.recv()?;
 
+        // 处理 IdentityP254Reply 消息
         let result = match reply.kind.ok_or(malformed_err())? {
             pb::api::identity_p254_reply::Kind::Ok(result) => {
+                // 将接收的字节数组解码为 SuccinctReceipt Protobuf 对象
                 let receipt_bytes = result.receipt.ok_or(malformed_err())?.as_bytes()?;
                 let receipt_pb = pb::core::SuccinctReceipt::decode(receipt_bytes)?;
                 receipt_pb.try_into()
@@ -358,6 +403,7 @@ impl Client {
             pb::api::identity_p254_reply::Kind::Error(err) => Err(err.into()),
         };
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -366,54 +412,39 @@ impl Client {
         result
     }
 
-    /// Compress a [Receipt], proving the same computation using a smaller representation.
-    ///
-    /// Proving will, by default, produce a [CompositeReceipt](crate::CompositeReceipt), which
-    /// may contain an arbitrary number of receipts assembled into segments and assumptions.
-    /// Together, these receipts collectively prove a top-level
-    /// [ReceiptClaim](crate::ReceiptClaim). This function can be used to compress all of the constituent
-    /// receipts of a [CompositeReceipt](crate::CompositeReceipt) into a single
-    /// [SuccinctReceipt](crate::SuccinctReceipt) or [Groth16Receipt](crate::Groth16Receipt) that proves the same top-level claim.
-    ///
-    /// Compression from [Groth16Receipt](crate::CompositeReceipt) to
-    /// [SuccinctReceipt](crate::SuccinctReceipt) is accomplished by iterative application of the
-    /// recursion programs including lift, join, and resolve.
-    ///
-    /// Compression from [SuccinctReceipt](crate::SuccinctReceipt) to
-    /// [Groth16Receipt](crate::Groth16Receipt) is accomplished by running a Groth16 recursive
-    /// verifier, refered to as the "STARK-to-SNARK" operation.
-    ///
-    /// NOTE: Compression to [Groth16Receipt](crate::Groth16Receipt) is currently only supported on
-    /// x86 hosts, and requires Docker to be installed. See issue
-    /// [#1749](https://github.com/risc0/risc0/issues/1749) for more information.
-    ///
-    /// If the receipt is already at least as compressed as the requested compression level (e.g.
-    /// it is already succinct or Groth16 and a succinct receipt is required) this function is a
-    /// no-op. As a result, it is idempotent.
+    /// 压缩 [Receipt]，使用更小的表示证明相同的计算。
     pub fn compress(
         &self,
         opts: &ProverOpts,
         receipt: Asset,
         receipt_out: AssetRequest,
     ) -> Result<Receipt> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect()?;
 
+        // 创建一个 CompressRequest 消息，包含选项、接收和接收输出的请求
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::Compress(
                 pb::api::CompressRequest {
+                    // 将选项转换为 Protobuf 格式
                     opts: Some(opts.clone().into()),
+                    // 将接收转换为 Protobuf 格式
                     receipt: Some(receipt.try_into()?),
+                    // 将接收输出请求转换为 Protobuf 格式
                     receipt_out: Some(receipt_out.try_into()?),
                 },
             )),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 CompressRequest 消息给服务器
         conn.send(request)?;
 
+        // 接收 CompressReply 消息
         let reply: pb::api::CompressReply = conn.recv()?;
 
+        // 处理 CompressReply 消息
         let result = match reply.kind.ok_or(malformed_err())? {
             pb::api::compress_reply::Kind::Ok(result) => {
+                // 将接收的字节数组解码为 Receipt Protobuf 对象
                 let receipt_bytes = result.receipt.ok_or(malformed_err())?.as_bytes()?;
                 let receipt_pb = pb::core::Receipt::decode(receipt_bytes)?;
                 receipt_pb.try_into()
@@ -421,6 +452,7 @@ impl Client {
             pb::api::compress_reply::Kind::Error(err) => Err(err.into()),
         };
 
+        // 关闭连接并检查返回的代码
         let code = conn.close()?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -429,28 +461,34 @@ impl Client {
         result
     }
 
-    /// Verify a [Receipt].
+    /// 验证 [Receipt]。
     pub fn verify(&self, receipt: Asset, image_id: impl Into<Digest>) -> Result<()> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connect().context("connect")?;
         let image_id = image_id.into();
 
+        // 创建一个 VerifyRequest 消息，包含接收和图像 ID
         let request = pb::api::ServerRequest {
             kind: Some(pb::api::server_request::Kind::Verify(
                 pb::api::VerifyRequest {
+                    // 将接收转换为 Protobuf 格式
                     receipt: Some(receipt.try_into().context("convert receipt asset")?),
+                    // 将图像 ID 转换为 Protobuf 格式
                     image_id: Some(image_id.into()),
                 },
             )),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 VerifyRequest 消息给服务器
         conn.send(request).context("send")?;
 
+        // 接收 GenericReply 消息
         let reply: pb::api::GenericReply = conn.recv().context("error from server")?;
         let result = match reply.kind.ok_or(malformed_err())? {
             pb::api::generic_reply::Kind::Ok(ok) => Ok(ok),
             pb::api::generic_reply::Kind::Error(err) => Err(err.into()),
         };
 
+        // 关闭连接并检查返回的代码
         let code = conn.close().context("close")?;
         if code != 0 {
             bail!("Child finished with: {code}");
@@ -458,38 +496,56 @@ impl Client {
 
         result
     }
-
+    /*
+    connect 函数的主要功能是建立与 zkVM 服务器的连接。具体步骤如下：
+    创建连接：使用 self.connector.connect() 方法创建一个新的连接。
+    发送客户端版本信息：获取客户端版本信息，并将其封装在 HelloRequest 消息中发送给服务器。
+    接收服务器响应：接收服务器的响应消息 HelloReply，并检查服务器版本是否兼容。
+    版本检查：根据客户端和服务器的版本信息，检查版本兼容性。如果不兼容，则返回错误。
+    返回连接：如果一切正常，返回建立的连接对象。
+    通过这些步骤，connect 函数确保客户端与服务器之间的通信可以顺利进行，并且版本兼容。
+     */
     fn connect(&self) -> Result<ConnectionWrapper> {
+        // 使用连接器创建一个新的连接
         let mut conn = self.connector.connect()?;
 
+        // 获取客户端版本信息，如果获取失败则返回错误
         let client_version = get_version().map_err(|err| anyhow!(err))?;
+        // 创建一个 HelloRequest 消息，包含客户端版本信息
         let request = pb::api::HelloRequest {
             version: Some(client_version.clone().into()),
         };
-        // tracing::trace!("tx: {request:?}");
+        // 发送 HelloRequest 消息给服务器
         conn.send(request)?;
 
+        // 接收服务器的 HelloReply 消息
         let reply: pb::api::HelloReply = conn.recv()?;
-        // tracing::trace!("rx: {reply:?}");
+
+        // 处理服务器的 HelloReply 消息
         match reply.kind.ok_or(malformed_err())? {
+            // 如果���务器返回 Ok，则检查服务器版本
             pb::api::hello_reply::Kind::Ok(reply) => {
+                // 获取服务器版本信息，如果获取失败则返回错误
                 let server_version: semver::Version = reply
                     .version
                     .ok_or(malformed_err())?
                     .try_into()
                     .map_err(|err: semver::Error| anyhow!(err))?;
 
+                // 根据是否兼容模式选择版本检查函数
                 let version_check = if self.compat {
                     check_server_version_wide
                 } else {
                     check_server_version
                 };
+                // 检查客户端和服务器版本是否兼容，如果不兼容��返回错误
                 if !version_check(&client_version, &server_version) {
                     let msg = format!("incompatible server version: {server_version}");
                     tracing::warn!("{msg}");
                     bail!(msg);
                 }
             }
+            // 如果服务器返回 Error，则关闭连接并返回错误
             pb::api::hello_reply::Kind::Error(err) => {
                 let code = conn.close()?;
                 tracing::debug!("Child finished with: {code}");
@@ -497,6 +553,7 @@ impl Client {
             }
         }
 
+        // 返回建立的连接对象
         Ok(conn)
     }
 
@@ -534,7 +591,7 @@ impl Client {
                                         .encode_to_vec()
                                         .into(),
                                 )
-                                .try_into()?,
+                                    .try_into()?,
                             )),
                         },
                         AssumptionReceipt::Unresolved(assumption) => pb::api::AssumptionReceipt {
@@ -544,7 +601,7 @@ impl Client {
                                         .encode_to_vec()
                                         .into(),
                                 )
-                                .try_into()?,
+                                    .try_into()?,
                             )),
                         },
                     })

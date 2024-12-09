@@ -40,27 +40,42 @@ impl ExternalProver {
 }
 
 impl Prover for ExternalProver {
-    fn prove_with_ctx(
-        &self,
-        env: ExecutorEnv<'_>,
-        ctx: &VerifierContext,
-        elf: &[u8],
-        opts: &ProverOpts,
-    ) -> Result<ProveInfo> {
-        tracing::debug!("Launching {}", &self.r0vm_path.to_string_lossy());
+fn prove_with_ctx(
+    &self,
+    env: ExecutorEnv<'_>,
+    ctx: &VerifierContext,
+    elf: &[u8],
+    opts: &ProverOpts,
+) -> Result<ProveInfo> {
+    // 记录调试信息，显示正在启动的r0vm路径
+    tracing::debug!("Launching {}", &self.r0vm_path.to_string_lossy());
 
-        let image_id = compute_image_id(elf)?;
-        let client = ApiClient::new_sub_process(&self.r0vm_path)?;
-        let binary = Asset::Inline(elf.to_vec().into());
-        let prove_info = client.prove(&env, opts, binary)?;
-        if opts.prove_guest_errors {
-            prove_info.receipt.verify_integrity_with_context(ctx)?;
-        } else {
-            prove_info.receipt.verify_with_context(ctx, image_id)?;
-        }
+    // 计算给定ELF二进制文件的image_id
+    let image_id = compute_image_id(elf)?;
 
-        Ok(prove_info)
+    // 创建一个新的子进程API客户端
+    let client = ApiClient::new_sub_process(&self.r0vm_path)?;
+
+    // 将ELF二进制文件转换到内存中
+    //Inline 的主要作用是将资产（例如 ELF 二进制文件）直接嵌入到内存中，而不是存储
+    // 在磁盘或其他外部存储中。这种方式可以提高访问速度和简化数据传输，因为数据已经在内存中，不需要额外的 I/O 操作
+    let binary = Asset::Inline(elf.to_vec().into());
+
+    // 使用客户端进行证明，传入环境变量、选项和二进制文件
+    let prove_info = client.prove(&env, opts, binary)?;
+
+    // 根据选项决定如何验证证明的完整性
+    if opts.prove_guest_errors {
+        // 如果选项中设置了prove_guest_errors，则验证证明的完整性
+        prove_info.receipt.verify_integrity_with_context(ctx)?;
+    } else {
+        // 否则，使用上下文和image_id进行验证
+        prove_info.receipt.verify_with_context(ctx, image_id)?;
     }
+
+    // 返回证明信息
+    Ok(prove_info)
+}
 
     fn get_name(&self) -> String {
         self.name.clone()

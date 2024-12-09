@@ -231,17 +231,25 @@ fn get_server_version<P: AsRef<Path>>(server_path: P) -> Result<Version> {
 
 impl Connector for ParentProcessConnector {
     fn connect(&self) -> Result<ConnectionWrapper> {
+        // 获取监听器的本地地址
         let addr = self.listener.local_addr()?;
+
+        // 启动子进程，运行服务器程序，并指定端口
         let child = Command::new(&self.server_path)
             .arg("--port")
             .arg(addr.port().to_string())
             .spawn()
             .with_context(|| self.spawn_fail())?;
 
+        // 创建一个用于关闭服务器的标志
         let shutdown = Arc::new(AtomicBool::new(false));
         let server_shutdown = shutdown.clone();
+
+        // 创建一个通道，用于在主线程和监听线程之间传递 TcpStream
         let (tx, rx) = channel();
         let listener = self.listener.try_clone()?;
+
+        // 启动一个新线程来接受连接
         let handle = thread::spawn(move || {
             let stream = listener.accept();
             if server_shutdown.load(Ordering::Relaxed) {
@@ -252,13 +260,16 @@ impl Connector for ParentProcessConnector {
             }
         });
 
+        // 从通道接收 TcpStream，设置超时时间
         let stream = rx.recv_timeout(CONNECT_TIMEOUT);
         let stream = stream.inspect_err(|_| {
+            // 如果接收超时，设置关闭标志并连接以触发监听器关闭
             shutdown.store(true, Ordering::Relaxed);
             let _ = TcpStream::connect(addr);
             handle.join().unwrap();
         })?;
 
+        // 返回一个新的 ConnectionWrapper 对象，包含子进程和 TcpStream
         Ok(ConnectionWrapper::new(Arc::new(Mutex::new(
             ParentProcessConnection::new(child, stream),
         ))))

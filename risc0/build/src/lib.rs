@@ -713,6 +713,8 @@ fn do_embed_methods<G: GuestBuilder>(
     let pkg = current_package();
     let guest_packages = guest_packages(&pkg);
     let methods_path = out_dir.join("methods.rs");
+    println!("Writing methods to {}", methods_path.display());
+    println!("out_dir: {:?}", out_dir);
     let mut methods_file = File::create(&methods_path).unwrap();
 
     // NOTE: Codegen of the guest list is gated behind the "guest-list" feature flag,

@@ -94,6 +94,7 @@ impl From<PageTableInfo> for PersistentPageTableInfo {
     }
 }
 
+/// 调用 SystemState 结构的 digest 方法，计算组合后的 merkle_root 和 pc 值的 SHA-256 哈希值
 /// Compute and return the ImageID of the given `(merkle_root, pc)` pair.
 fn compute_image_id(merkle_root: &Digest, pc: u32) -> Digest {
     SystemState {
@@ -325,6 +326,12 @@ impl MemoryImage {
 
     /// Compute and return the root merkle entry of this image.
     pub fn compute_root_hash(&self) -> Digest {
+        /*
+        获取根页面：从 pages 字典中获取根页面（root_page），根页面的索引由 info.root_idx 指定。
+        计算根页面的哈希值：对根页面的字节数据进行哈希计算，使用 hash_page_bytes 函数。
+        self.pages.get(&self.info.root_idx) 获取根页面的字节数据。
+        hash_page_bytes 函数对根页面的字节数据进行哈希计算。
+         */
         let root_page = self
             .pages
             .get(&self.info.root_idx)
