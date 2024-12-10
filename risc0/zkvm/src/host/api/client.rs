@@ -687,50 +687,66 @@ impl Client {
         env: &ExecutorEnv<'_>,
     ) -> Result<pb::api::Asset> {
         loop {
+            // 从连接中接收服务器的回复消息
             let reply: pb::api::ServerReply = conn.recv()?;
             // tracing::trace!("rx: {reply:?}");
 
+            // 处理服务器的回复消息
             match reply.kind.ok_or(malformed_err())? {
+                // 如果服务器返回 Ok，则处理客户端回调
                 pb::api::server_reply::Kind::Ok(request) => {
                     match request.kind.ok_or(malformed_err())? {
+                        // 处理 I/O 请求
                         pb::api::client_callback::Kind::Io(io) => {
+                            // 调用 on_io 方法处理 I/O 请求，并将结果转换为 OnIoReply 消息
                             let msg: pb::api::OnIoReply = self.on_io(env, io).into();
                             // tracing::trace!("tx: {msg:?}");
+                            // 将 OnIoReply 消息发送回服务器
                             conn.send(msg)?;
                         }
+                        // 处理 SegmentDone 回调，返回错误，因为这是非法的客户端回调
                         pb::api::client_callback::Kind::SegmentDone(_) => {
                             return Err(anyhow!("Illegal client callback"))
                         }
+                        // 处理 SessionDone 回调，返回错误，因为这是非法的客户端回调
                         pb::api::client_callback::Kind::SessionDone(_) => {
                             return Err(anyhow!("Illegal client callback"))
                         }
+                        // 处理 ProveDone 回调，返回证明信息
                         pb::api::client_callback::Kind::ProveDone(done) => {
                             return done.prove_info.ok_or(malformed_err())
                         }
                     }
                 }
+                // 如果服务器返回 Error，则返回错误
                 pb::api::server_reply::Kind::Error(err) => return Err(err.into()),
             }
         }
     }
 
     fn on_io(&self, env: &ExecutorEnv<'_>, request: pb::api::OnIoRequest) -> Result<Bytes> {
+        // 处理 I/O 请求，根据请求的类型调用相应的方法
         match request.kind.ok_or(malformed_err())? {
+            // 处理 POSIX I/O 请求
             pb::api::on_io_request::Kind::Posix(posix) => {
                 let cmd = posix.cmd.ok_or(malformed_err())?;
                 match cmd.kind.ok_or(malformed_err())? {
+                    // 处理 POSIX 读请求
                     pb::api::posix_cmd::Kind::Read(nread) => {
                         self.on_posix_read(env, posix.fd, nread as usize)
                     }
+                    // 处理 POSIX 写请求
                     pb::api::posix_cmd::Kind::Write(from_guest) => {
                         self.on_posix_write(env, posix.fd, from_guest.into())?;
                         Ok(Bytes::new())
                     }
                 }
             }
+            // 处理 Slice I/O 请求
             pb::api::on_io_request::Kind::Slice(slice_io) => {
                 self.on_slice(env, &slice_io.name, slice_io.from_guest.into())
             }
+            // 处理 Trace 事件
             pb::api::on_io_request::Kind::Trace(event) => {
                 self.on_trace(env, event)?;
                 Ok(Bytes::new())
@@ -740,10 +756,14 @@ impl Client {
 
     fn on_posix_read(&self, env: &ExecutorEnv<'_>, fd: u32, nread: usize) -> Result<Bytes> {
         tracing::debug!("on_posix_read: {fd}, {nread}");
+        // 创建一个缓冲区，用于存储从主机读取的数据
         let mut from_host = vec![0; nread];
         let posix_io = env.posix_io.borrow();
+        // 获取文件描述符对应的读取器
         let reader = posix_io.get_reader(fd)?;
+        // 从读取器中读取数据到缓冲区
         let nread = reader.borrow_mut().read(&mut from_host)?;
+        // 将读取的数据转换为字节数组并返回
         let slice = from_host[..nread].to_vec();
         Ok(slice.into())
     }
@@ -751,22 +771,27 @@ impl Client {
     fn on_posix_write(&self, env: &ExecutorEnv<'_>, fd: u32, from_guest: Bytes) -> Result<()> {
         tracing::debug!("on_posix_write: {fd}");
         let posix_io = env.posix_io.borrow();
+        // 获取文件描述符对应的写入器
         let writer = posix_io.get_writer(fd)?;
+        // 将来自客户端的数据写入到写入器中
         writer.borrow_mut().write_all(&from_guest)?;
         Ok(())
     }
 
     fn on_slice(&self, env: &ExecutorEnv<'_>, name: &str, from_guest: Bytes) -> Result<Bytes> {
         let table = env.slice_io.borrow();
+        // 获取指定名称的 Slice I/O 处理器
         let slice_io = table
             .inner
             .get(name)
             .ok_or(anyhow!("Unknown I/O channel name: {name}"))?;
+        // 调用 Slice I/O 处理器处理 I/O 请求，并返回结果
         let result = slice_io.borrow_mut().handle_io(name, from_guest)?;
         Ok(result)
     }
 
     fn on_trace(&self, env: &ExecutorEnv<'_>, event: pb::api::TraceEvent) -> Result<()> {
+        // 遍历所有的 Trace 回调函数，并调用它们处理 Trace 事件
         for trace_callback in env.trace.iter() {
             trace_callback
                 .borrow_mut()
