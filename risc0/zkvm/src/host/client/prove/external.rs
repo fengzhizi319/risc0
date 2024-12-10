@@ -49,12 +49,13 @@ fn prove_with_ctx(
 ) -> Result<ProveInfo> {
     // 记录调试信息，显示正在启动的r0vm路径
     tracing::debug!("Launching {}", &self.r0vm_path.to_string_lossy());
-
+    println!("Launching {}", &self.r0vm_path.to_string_lossy());
     // 计算给定ELF二进制文件的image_id
     let image_id = compute_image_id(elf)?;
 
     // 创建一个新的子进程API客户端
     let client = ApiClient::new_sub_process(&self.r0vm_path)?;
+    println!("r0vm_path: {:?}", self.r0vm_path);
 
     // 将ELF二进制文件转换到内存中
     //Inline 的主要作用是将资产（例如 ELF 二进制文件）直接嵌入到内存中，而不是存储
