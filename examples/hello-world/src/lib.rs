@@ -24,6 +24,8 @@ use risc0_zkvm::{default_prover, ExecutorEnv, Receipt};
 
 // Compute the product a*b inside the zkVM
 pub fn multiply(a: u64, b: u64) -> (Receipt, u64) {
+
+
     let env = ExecutorEnv::builder()
         // Send a & b to the guest
         .write(&a)

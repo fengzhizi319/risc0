@@ -355,29 +355,39 @@ impl Server {
     }
 
     fn on_prove(&self, mut conn: ConnectionWrapper, request: pb::api::ProveRequest) -> Result<()> {
+        // 内部函数，用于处理证明请求
         fn inner(
             conn: &mut ConnectionWrapper,
             request: pb::api::ProveRequest,
         ) -> Result<pb::api::ServerReply> {
+            // 获取并解析执行环境请求
             let env_request = request.env.ok_or(malformed_err())?;
             let env = build_env(conn, &env_request)?;
 
+            // 获取并解析二进制数据
             let binary = env_request.binary.ok_or(malformed_err())?;
             let bytes = binary.as_bytes()?;
 
+            // 获取并解析证明选项
             let opts: ProverOpts = request.opts.ok_or(malformed_err())?.try_into()?;
+            // 获取证明服务器实例
             let prover = get_prover_server(&opts)?;
+            // 创建验证上下文
             let ctx = VerifierContext::default();
+            // 使用上下文和二进制数据进行证明
             let prove_info = prover.prove_with_ctx(env, &ctx, &bytes)?;
 
+            // 将证明信息转换为 Protobuf 格式
             let prove_info: pb::core::ProveInfo = prove_info.into();
             let prove_info_bytes = prove_info.encode_to_vec();
+            // 创建资产对象，用于存储证明信息
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 prove_info_bytes.into(),
                 "prove_info.zkp",
             )?;
 
+            // 返回成功的服务器回复，包含证明完成的回调
             Ok(pb::api::ServerReply {
                 kind: Some(pb::api::server_reply::Kind::Ok(pb::api::ClientCallback {
                     kind: Some(pb::api::client_callback::Kind::ProveDone(
@@ -389,12 +399,14 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(&mut conn, request).unwrap_or_else(|err| pb::api::ServerReply {
             kind: Some(pb::api::server_reply::Kind::Error(pb::api::GenericError {
                 reason: err.to_string(),
             })),
         });
 
+        // 记录发送的消息并发送回复
         tracing::trace!("tx: {msg:?}");
         conn.send(msg)
     }
@@ -404,23 +416,32 @@ impl Server {
         mut conn: ConnectionWrapper,
         request: pb::api::ProveSegmentRequest,
     ) -> Result<()> {
+        // 内部函数，用于处理证明段请求
         fn inner(request: pb::api::ProveSegmentRequest) -> Result<pb::api::ProveSegmentReply> {
+            // 获取并解析证明选项
             let opts: ProverOpts = request.opts.ok_or(malformed_err())?.try_into()?;
+            // 获取并解析段数据
             let segment_bytes = request.segment.ok_or(malformed_err())?.as_bytes()?;
             let segment: Segment = bincode::deserialize(&segment_bytes)?;
 
+            // 获取证明服务器实例
             let prover = get_prover_server(&opts)?;
+            // 创建验证上下文
             let ctx = VerifierContext::default();
+            // 使用上下文和段数据进行证明
             let receipt = prover.prove_segment(&ctx, &segment)?;
 
+            // 将证明回执转换为 Protobuf 格式
             let receipt_pb: pb::core::SegmentReceipt = receipt.into();
             let receipt_bytes = receipt_pb.encode_to_vec();
+            // 创建资产对象，用于存储证明回执
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 receipt_bytes.into(),
                 "receipt.zkp",
             )?;
 
+            // 返回成功的证明段回复
             Ok(pb::api::ProveSegmentReply {
                 kind: Some(pb::api::prove_segment_reply::Kind::Ok(
                     pb::api::ProveSegmentResult {
@@ -430,6 +451,7 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(request).unwrap_or_else(|err| pb::api::ProveSegmentReply {
             kind: Some(pb::api::prove_segment_reply::Kind::Error(
                 pb::api::GenericError {
@@ -438,6 +460,7 @@ impl Server {
             )),
         });
 
+        // 记录发送的消息并发送回复
         tracing::trace!("tx: {msg:?}");
         conn.send(msg)
     }
@@ -447,18 +470,24 @@ impl Server {
         mut conn: ConnectionWrapper,
         request: pb::api::ProveZkrRequest,
     ) -> Result<()> {
+        // 内部函数，用于处理 ZKR 证明请求
         fn inner(request: pb::api::ProveZkrRequest) -> Result<pb::api::ProveZkrReply> {
+            // 获取并解析控制 ID
             let control_id = request.control_id.ok_or(malformed_err())?.try_into()?;
+            // 使用控制 ID 和输入数据进行 ZKR 证明
             let receipt = prove_zkr(&control_id, &request.input)?;
 
+            // 将证明回执转换为 Protobuf 格式
             let receipt_pb: pb::core::SuccinctReceipt = receipt.into();
             let receipt_bytes = receipt_pb.encode_to_vec();
+            // 创建资产对象，用于存储证明回执
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 receipt_bytes.into(),
                 "receipt.zkp",
             )?;
 
+            // 返回成功的 ZKR 证明回复
             Ok(pb::api::ProveZkrReply {
                 kind: Some(pb::api::prove_zkr_reply::Kind::Ok(
                     pb::api::ProveZkrResult {
@@ -468,6 +497,7 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(request).unwrap_or_else(|err| pb::api::ProveZkrReply {
             kind: Some(pb::api::prove_zkr_reply::Kind::Error(
                 pb::api::GenericError {
@@ -476,27 +506,36 @@ impl Server {
             )),
         });
 
+        // 记录发送的消息并发送回复
         tracing::trace!("tx: {msg:?}");
         conn.send(msg)
     }
 
     fn on_lift(&self, mut conn: ConnectionWrapper, request: pb::api::LiftRequest) -> Result<()> {
+        // 内部函数，用于处理 Lift 请求
         fn inner(request: pb::api::LiftRequest) -> Result<pb::api::LiftReply> {
+            // 获取并解析证明选项
             let opts: ProverOpts = request.opts.ok_or(malformed_err())?.try_into()?;
+            // 获取并解析回执数据
             let receipt_bytes = request.receipt.ok_or(malformed_err())?.as_bytes()?;
             let segment_receipt: SegmentReceipt = bincode::deserialize(&receipt_bytes)?;
 
+            // 获取证明服务器实例
             let prover = get_prover_server(&opts)?;
+            // 使用段回执进行 Lift 操作
             let receipt = prover.lift(&segment_receipt)?;
 
+            // 将 Lift 结果转换为 Protobuf 格式
             let succinct_receipt_pb: pb::core::SuccinctReceipt = receipt.into();
             let succinct_receipt_bytes = succinct_receipt_pb.encode_to_vec();
+            // 创建资产对象，用于存储 Lift 结果
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 succinct_receipt_bytes.into(),
                 "receipt.zkp",
             )?;
 
+            // 返回成功的 Lift 回复
             Ok(pb::api::LiftReply {
                 kind: Some(pb::api::lift_reply::Kind::Ok(pb::api::LiftResult {
                     receipt: Some(asset),
@@ -504,37 +543,47 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(request).unwrap_or_else(|err| pb::api::LiftReply {
             kind: Some(pb::api::lift_reply::Kind::Error(pb::api::GenericError {
                 reason: err.to_string(),
             })),
         });
 
-        // tracing::trace!("tx: {msg:?}");
+        // 记录发送的消息并发送回复
         conn.send(msg)
     }
 
     fn on_join(&self, mut conn: ConnectionWrapper, request: pb::api::JoinRequest) -> Result<()> {
+        // 内部函数，用于处理 Join 请求
         fn inner(request: pb::api::JoinRequest) -> Result<pb::api::JoinReply> {
+            // 获取并解析证明选项
             let opts: ProverOpts = request.opts.ok_or(malformed_err())?.try_into()?;
+            // 获取并解析左侧回执数据
             let left_receipt_bytes = request.left_receipt.ok_or(malformed_err())?.as_bytes()?;
             let left_succinct_receipt: SuccinctReceipt<ReceiptClaim> =
                 bincode::deserialize(&left_receipt_bytes)?;
+            // 获取并解析右侧回执数据
             let right_receipt_bytes = request.right_receipt.ok_or(malformed_err())?.as_bytes()?;
             let right_succinct_receipt: SuccinctReceipt<ReceiptClaim> =
                 bincode::deserialize(&right_receipt_bytes)?;
 
+            // 获取证明服务器实例
             let prover = get_prover_server(&opts)?;
+            // 使用左右回执进行 Join 操作
             let receipt = prover.join(&left_succinct_receipt, &right_succinct_receipt)?;
 
+            // 将 Join 结果转换为 Protobuf 格式
             let succinct_receipt_pb: pb::core::SuccinctReceipt = receipt.into();
             let succinct_receipt_bytes = succinct_receipt_pb.encode_to_vec();
+            // 创建资产对象，用于存储 Join 结果
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 succinct_receipt_bytes.into(),
                 "receipt.zkp",
             )?;
 
+            // 返回成功的 Join 回复
             Ok(pb::api::JoinReply {
                 kind: Some(pb::api::join_reply::Kind::Ok(pb::api::JoinResult {
                     receipt: Some(asset),
@@ -542,13 +591,14 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(request).unwrap_or_else(|err| pb::api::JoinReply {
             kind: Some(pb::api::join_reply::Kind::Error(pb::api::GenericError {
                 reason: err.to_string(),
             })),
         });
 
-        // tracing::trace!("tx: {msg:?}");
+        // 记录发送的消息并发送回复
         conn.send(msg)
     }
 
@@ -557,14 +607,18 @@ impl Server {
         mut conn: ConnectionWrapper,
         request: pb::api::ResolveRequest,
     ) -> Result<()> {
+        // 内部函数，用于处理 Resolve 请求
         fn inner(request: pb::api::ResolveRequest) -> Result<pb::api::ResolveReply> {
+            // 获取并解析证明选项
             let opts: ProverOpts = request.opts.ok_or(malformed_err())?.try_into()?;
+            // 获取并解析条件回执数据
             let conditional_receipt_bytes = request
                 .conditional_receipt
                 .ok_or(malformed_err())?
                 .as_bytes()?;
             let conditional_succinct_receipt: SuccinctReceipt<ReceiptClaim> =
                 bincode::deserialize(&conditional_receipt_bytes)?;
+            // 获取并解析假设回执数据
             let assumption_receipt_bytes = request
                 .assumption_receipt
                 .ok_or(malformed_err())?
@@ -572,20 +626,25 @@ impl Server {
             let assumption_succinct_receipt: SuccinctReceipt<ReceiptClaim> =
                 bincode::deserialize(&assumption_receipt_bytes)?;
 
+            // 获取证明服务器实例
             let prover = get_prover_server(&opts)?;
+            // 使用条件回执和假设回执进行 Resolve 操作
             let receipt = prover.resolve(
                 &conditional_succinct_receipt,
                 &assumption_succinct_receipt.into_unknown(),
             )?;
 
+            // 将 Resolve 结果转换为 Protobuf 格式
             let succinct_receipt_pb: pb::core::SuccinctReceipt = receipt.into();
             let succinct_receipt_bytes = succinct_receipt_pb.encode_to_vec();
+            // 创建资产对象，用于存储 Resolve 结果
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 succinct_receipt_bytes.into(),
                 "receipt.zkp",
             )?;
 
+            // 返回成功的 Resolve 回复
             Ok(pb::api::ResolveReply {
                 kind: Some(pb::api::resolve_reply::Kind::Ok(pb::api::ResolveResult {
                     receipt: Some(asset),
@@ -593,13 +652,14 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(request).unwrap_or_else(|err| pb::api::ResolveReply {
             kind: Some(pb::api::resolve_reply::Kind::Error(pb::api::GenericError {
                 reason: err.to_string(),
             })),
         });
 
-        // tracing::trace!("tx: {msg:?}");
+        // 记录发送的消息并发送回复
         conn.send(msg)
     }
 
@@ -608,20 +668,26 @@ impl Server {
         mut conn: ConnectionWrapper,
         request: pb::api::IdentityP254Request,
     ) -> Result<()> {
+        // 内部函数，用于处理 IdentityP254 请求
         fn inner(request: pb::api::IdentityP254Request) -> Result<pb::api::IdentityP254Reply> {
+            // 获取并解析回执数据
             let receipt_bytes = request.receipt.ok_or(malformed_err())?.as_bytes()?;
             let succinct_receipt: SuccinctReceipt<ReceiptClaim> =
                 bincode::deserialize(&receipt_bytes)?;
 
+            // 使用 P254 算法进行身份验证
             let receipt = identity_p254(&succinct_receipt)?;
+            // 将身份验证结果转换为 Protobuf 格式
             let succinct_receipt_pb: pb::core::SuccinctReceipt = receipt.into();
             let succinct_receipt_bytes = succinct_receipt_pb.encode_to_vec();
+            // 创建资产对象，用于存储身份验证结果
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 succinct_receipt_bytes.into(),
                 "receipt.zkp",
             )?;
 
+            // 返回成功的 IdentityP254 回复
             Ok(pb::api::IdentityP254Reply {
                 kind: Some(pb::api::identity_p254_reply::Kind::Ok(
                     pb::api::IdentityP254Result {
@@ -631,6 +697,7 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(request).unwrap_or_else(|err| pb::api::IdentityP254Reply {
             kind: Some(pb::api::identity_p254_reply::Kind::Error(
                 pb::api::GenericError {
@@ -639,7 +706,7 @@ impl Server {
             )),
         });
 
-        // tracing::trace!("tx: {msg:?}");
+        // 记录发送的消息并发送回复
         conn.send(msg)
     }
 
@@ -648,22 +715,30 @@ impl Server {
         mut conn: ConnectionWrapper,
         request: pb::api::CompressRequest,
     ) -> Result<()> {
+        // 内部函数，用于处理压缩请求
         fn inner(request: pb::api::CompressRequest) -> Result<pb::api::CompressReply> {
+            // 获取并解析证明选项
             let opts: ProverOpts = request.opts.ok_or(malformed_err())?.try_into()?;
+            // 获取并解析回执数据
             let receipt_bytes = request.receipt.ok_or(malformed_err())?.as_bytes()?;
             let receipt: Receipt = bincode::deserialize(&receipt_bytes)?;
 
+            // 获取证明服务器实例
             let prover = get_prover_server(&opts)?;
+            // 使用证明服务器进行压缩操作
             let receipt = prover.compress(&opts, &receipt)?;
 
+            // 将压缩后的回执转换为 Protobuf 格式
             let receipt_pb: pb::core::Receipt = receipt.into();
             let receipt_bytes = receipt_pb.encode_to_vec();
+            // 创建资产对象，用于存储压缩后的回执
             let asset = pb::api::Asset::from_bytes(
                 &request.receipt_out.ok_or(malformed_err())?,
                 receipt_bytes.into(),
                 "receipt.zkp",
             )?;
 
+            // 返回成功的压缩回复
             Ok(pb::api::CompressReply {
                 kind: Some(pb::api::compress_reply::Kind::Ok(pb::api::CompressResult {
                     receipt: Some(asset),
@@ -671,6 +746,7 @@ impl Server {
             })
         }
 
+        // 调用内部函数处理请求，并处理可能的错误
         let msg = inner(request).unwrap_or_else(|err| pb::api::CompressReply {
             kind: Some(pb::api::compress_reply::Kind::Error(
                 pb::api::GenericError {
@@ -679,6 +755,7 @@ impl Server {
             )),
         });
 
+        // 记录发送的消息并发送回复
         // tracing::trace!("tx: {msg:?}");
         conn.send(msg)
     }
@@ -688,17 +765,23 @@ impl Server {
         mut conn: ConnectionWrapper,
         request: pb::api::VerifyRequest,
     ) -> Result<()> {
+        // 内部函数，用于处理验证请求
         fn inner(request: pb::api::VerifyRequest) -> Result<()> {
+            // 获取并解析回执数据
             let receipt_bytes = request.receipt.ok_or(malformed_err())?.as_bytes()?;
             let receipt: Receipt =
                 bincode::deserialize(&receipt_bytes).context("deserialize receipt")?;
+            // 获取并解析图像 ID
             let image_id: Digest = request.image_id.ok_or(malformed_err())?.try_into()?;
+            // 使用图像 ID 验证回执
             receipt
                 .verify(image_id)
                 .map_err(|err| anyhow!("verify failed: {err}"))
         }
 
+        // 将验证结果转换为通用回复格式
         let msg: pb::api::GenericReply = inner(request).into();
+        // 记录发送的消息并发送回复
         // tracing::trace!("tx: {msg:?}");
         conn.send(msg)
     }
@@ -708,48 +791,85 @@ fn build_env<'a>(
     conn: &ConnectionWrapper,
     request: &pb::api::ExecutorEnv,
 ) -> Result<ExecutorEnv<'a>> {
+    // 创建一个 ExecutorEnv 构建器
     let mut env_builder = ExecutorEnv::builder();
+
+    // 设置环境变量
     env_builder.env_vars(request.env_vars.clone());
+
+    // 设置命令行参数
     env_builder.args(&request.args);
+
+    // 处理读取文件描述符
     for fd in request.read_fds.iter() {
+        // 创建 PosixIoProxy 代理
         let proxy = PosixIoProxy::new(*fd, conn.clone());
+        // 创建 BufReader 读取器
         let reader = BufReader::new(proxy);
+        // 将读取器添加到环境构建器
         env_builder.read_fd(*fd, reader);
     }
+
+    // 处理写入文件描述符
     for fd in request.write_fds.iter() {
+        // 创建 PosixIoProxy 代理
         let proxy = PosixIoProxy::new(*fd, conn.clone());
+        // 将写入代理添加到环境构建器
         env_builder.write_fd(*fd, proxy);
     }
+
+    // 创建 SliceIoProxy 代理
     let proxy = SliceIoProxy::new(conn.clone());
+    // 处理切片 IO
     for name in request.slice_ios.iter() {
+        // 将切片 IO 代理添加到环境构建器
         env_builder.slice_io(name, proxy.clone());
     }
+
+    // 设置段限制
     if let Some(segment_limit_po2) = request.segment_limit_po2 {
         env_builder.segment_limit_po2(segment_limit_po2);
     }
+
+    // 设置会话限制
     env_builder.session_limit(request.session_limit);
+
+    // 处理跟踪事件
     if request.trace_events.is_some() {
+        // 创建 TraceProxy 代理
         let proxy = TraceProxy::new(conn.clone());
+        // 将跟踪回调添加到环境构建器
         env_builder.trace_callback(proxy);
     }
+
+    // 启用性能分析器
     if !request.pprof_out.is_empty() {
         env_builder.enable_profiler(Path::new(&request.pprof_out));
     }
+
+    // 设置段路径
     if !request.segment_path.is_empty() {
         env_builder.segment_path(Path::new(&request.segment_path));
     }
+
+    // 处理协处理器
     if request.coprocessor {
+        // 创建 CoprocessorProxy 代理
         let proxy = CoprocessorProxy::new(conn.clone());
+        // 将协处理器回调添加到环境构建器
         env_builder.coprocessor_callback(proxy);
     }
 
+    // 处理假设
     for assumption in request.assumptions.iter() {
         match assumption.kind.as_ref().ok_or(malformed_err())? {
+            // 处理已证明的假设
             pb::api::assumption_receipt::Kind::Proven(asset) => {
                 let receipt: InnerAssumptionReceipt =
                     pb::core::InnerReceipt::decode(asset.as_bytes()?)?.try_into()?;
                 env_builder.add_assumption(receipt)
             }
+            // 处理未解决的假设
             pb::api::assumption_receipt::Kind::Unresolved(asset) => {
                 let assumption: Assumption =
                     pb::core::Assumption::decode(asset.as_bytes()?)?.try_into()?;
@@ -757,6 +877,8 @@ fn build_env<'a>(
             }
         };
     }
+
+    // 构建并返回 ExecutorEnv
     env_builder.build()
 }
 
@@ -804,7 +926,9 @@ impl pb::api::Asset {
 
 #[allow(dead_code)]
 fn check_client_version(client: &semver::Version, server: &semver::Version) -> bool {
+    // 如果服务器版本没有预发布标签
     if server.pre.is_empty() {
+        // 创建一个版本比较器，要求客户端版本大于等于服务器版本
         let comparator = semver::Comparator {
             op: semver::Op::GreaterEq,
             major: server.major,
@@ -812,14 +936,17 @@ fn check_client_version(client: &semver::Version, server: &semver::Version) -> b
             patch: None,
             pre: semver::Prerelease::EMPTY,
         };
+        // 检查客户端版本是否匹配比较器
         comparator.matches(client)
     } else {
+        // 如果服务器版本有预发布标签，客户端版本必须完全相同
         client == server
     }
 }
 
 #[allow(dead_code)]
 fn check_client_version_compat(client: &semver::Version, server: &semver::Version) -> bool {
+    // 检查客户端和服务器的主版本号是否相同
     client.major == server.major
 }
 
@@ -838,17 +965,23 @@ fn execute_redis(
         thread::{spawn, JoinHandle},
     };
 
+    // 获取 Redis 通道大小，默认为 100
     let channel_size = match std::env::var("RISC0_REDIS_CHANNEL_SIZE") {
         Ok(val_str) => val_str.parse::<usize>().unwrap_or(100),
         Err(_) => 100,
     };
+    // 创建同步通道
     let (sender, receiver) = sync_channel::<(String, Segment)>(channel_size);
+    // 设置 Redis 选项，包含过期时间
     let opts = SetOptions::default().with_expiration(SetExpiry::EX(params.ttl));
 
+    // 创建一个共享的 Redis 错误变量
     let redis_err = Arc::new(Mutex::new(None));
     let redis_err_clone = redis_err.clone();
 
+    // 克隆连接
     let conn = conn.clone();
+    // 启动一个新线程处理 Redis 操作
     let join_handle: JoinHandle<()> = spawn(move || {
         fn inner(
             redis_url: String,
@@ -856,10 +989,12 @@ fn execute_redis(
             opts: SetOptions,
             mut conn: ConnectionWrapper,
         ) -> Result<()> {
+            // 打开 Redis 客户端
             let client = Client::open(redis_url).context("Failed to open Redis connection")?;
             let mut connection = client
                 .get_connection()
                 .context("Failed to get redis connection")?;
+            // 循环接收段数据并存储到 Redis
             while let Ok((segment_key, segment)) = receiver.recv() {
                 if !connection.is_open() {
                     connection = client
@@ -896,6 +1031,7 @@ fn execute_redis(
         }
     });
 
+    // 执行回调函数，处理段数据
     let session = exec.run_with_callback(|segment| {
         let segment_key = format!("{}:{}", params.key, segment.index);
         if let Err(send_err) = sender.send((segment_key, segment)) {
@@ -915,8 +1051,10 @@ fn execute_redis(
         Ok(Box::new(NullSegmentRef))
     });
 
+    // 关闭发送者
     drop(sender);
 
+    // 等待线程结束
     join_handle
         .join()
         .map_err(|err| anyhow!("redis task join failed: {err:?}"))?;
@@ -929,6 +1067,7 @@ fn execute_default(
     exec: &mut ExecutorImpl,
     segments_out: &pb::api::AssetRequest,
 ) -> Result<Session> {
+    // 执行回调函数，处理段数据
     exec.run_with_callback(|segment| {
         let segment_bytes = bincode::serialize(&segment)?;
         let asset = pb::api::Asset::from_bytes(
@@ -946,6 +1085,7 @@ fn send_segment_done_msg(
     segment: Segment,
     some_asset: Option<pb::api::Asset>,
 ) -> Result<()> {
+    // 创建段信息
     let segment = Some(pb::api::SegmentInfo {
         index: segment.index,
         po2: segment.inner.po2 as u32,
@@ -953,6 +1093,7 @@ fn send_segment_done_msg(
         segment: some_asset,
     });
 
+    // 创建服务器回复消息
     let msg = pb::api::ServerReply {
         kind: Some(pb::api::server_reply::Kind::Ok(pb::api::ClientCallback {
             kind: Some(pb::api::client_callback::Kind::SegmentDone(
@@ -1016,5 +1157,42 @@ mod tests {
         assert!(test("1.2.0-rc.1", "1.1.1"));
 
         assert!(!test("2.0.0", "1.1.1"));
+    }
+    #[test]
+    fn test_on_prove() {
+        // Create a mock connection
+        let conn = ConnectionWrapper::new_mock();
+
+        // Create a sample ProveRequest
+        let request = ProveRequest {
+            env: Some(ExecutorEnv {
+                env_vars: vec![],
+                args: vec![],
+                read_fds: vec![],
+                write_fds: vec![],
+                slice_ios: vec![],
+                segment_limit_po2: None,
+                session_limit: 0,
+                trace_events: None,
+                pprof_out: String::new(),
+                segment_path: String::new(),
+                coprocessor: false,
+                assumptions: vec![],
+                binary: None,
+            }),
+            opts: Some(ProverOpts::default().into()),
+            receipt_out: Some(AssetRequest {
+                kind: Some(pb::api::asset_request::Kind::Inline(())),
+            }),
+        };
+
+        // Create a Server instance
+        let server = Server::new(Box::new(conn.clone()));
+
+        // Call the on_prove function
+        let result = server.on_prove(conn, request);
+
+        // Assert the result is Ok
+        assert!(result.is_ok());
     }
 }

@@ -107,6 +107,7 @@ enum ReceiptKind {
 }
 
 pub fn main() {
+    println!("Hello, world wen zeeeeee!");
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
         .init();

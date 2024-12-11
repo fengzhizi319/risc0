@@ -20,13 +20,21 @@ fn main() {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    use std::time::Instant;
+
     // Pick two numbers
+    let start = Instant::now();
     let (receipt, _) = multiply(17, 23);
+    let duration = start.elapsed();
+    println!("Time taken for multiply: {:?}", duration);
 
     // Here is where one would send 'receipt' over the network...
 
     // Verify receipt, panic if it's wrong
+    let start = Instant::now();
     receipt.verify(MULTIPLY_ID).expect(
         "Code you have proven should successfully verify; did you specify the correct image ID?",
     );
+    let duration = start.elapsed();
+    println!("Time taken for verify: {:?}", duration);
 }
