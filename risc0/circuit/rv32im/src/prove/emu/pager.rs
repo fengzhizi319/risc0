@@ -197,7 +197,7 @@ impl PagedMemory {
             }
         }
     }
-
+    ///commit_step 函数的主要功能是清除 pending_actions 列表中的所有挂起操作。这意味着在调用此函数后，所有记录的挂起操作将被移除，准备好接收新的操作。
     pub fn commit_step(&mut self) {
         self.pending_actions.clear();
     }
@@ -212,51 +212,70 @@ impl PagedMemory {
 
     pub fn get_faults(&self) -> PageFaults {
         let mut faults = PageFaults::default();
+        // 遍历所有页面状态
         for (page_idx, page_state) in &self.page_states {
+            // 将页面索引添加到读取故障集合中
             faults.reads.insert(*page_idx);
+            // 如果页面状态为脏页，将页面索引添加到写入故障集合中
             if *page_state == PageState::Dirty {
                 faults.writes.insert(*page_idx);
             }
         }
+        // 返回页面故障信息
         faults
     }
 
     pub fn peek_page(&self, page_idx: u32) -> Vec<u8> {
+        // 获取页面表中对应页面索引的缓存索引
         let idx = self.page_table[page_idx as usize];
+        // 如果缓存索引无效，则从镜像中加载页面
         if idx == INVALID_IDX {
             self.image.load_page(page_idx)
         } else {
+            // 否则，从缓存中获取页面数据并返回
             self.page_cache[idx as usize].0.clone()
         }
     }
 
     fn load_page(&mut self, page_idx: u32) {
+        // 记录加载页面的调试信息
         tracing::trace!("load_page: 0x{page_idx:05x}");
+        // 从镜像中加载页面数据
         let page = self.image.load_page(page_idx);
+        // 更新页面表，将页面索引指向缓存中的新位置
         self.page_table[page_idx as usize] = self.page_cache.len() as u32;
+        // 将加载的页面数据添加到缓存中
         self.page_cache.push(Page(page));
+        // 更新页面状态为已加载
         self.update(page_idx, PageState::Loaded);
+        // 记录页面状态变化
         self.page_changed(page_idx, PageState::Loaded);
     }
 
     fn update(&mut self, mut page_idx: u32, goal: PageState) {
         // tracing::trace!("update(0x{page_idx:05x}, {goal:?})");
+        // 循环更新页面状态，直到根页面
         while page_idx != self.image.info.root_idx {
             let info = &self.image.info;
+            // 获取页面条目地址
             let entry_addr = info.get_page_entry_addr(page_idx);
+            // 获取父页面索引
             let parent_idx = info.get_page_index(entry_addr);
 
+            // 如果父页面状态存在且小于目标状态，则更新父页面状态
             if let Some(state) = self.page_states.get(&parent_idx) {
                 if goal > *state {
                     self.page_changed(parent_idx, goal);
                 }
             } else {
+                // 否则，从镜像中加载父页面数据并更新状态
                 let page = self.image.load_page(parent_idx);
                 self.page_table[parent_idx as usize] = self.page_cache.len() as u32;
                 self.page_cache.push(Page(page));
                 self.page_changed(parent_idx, goal);
             }
 
+            // 更新当前页面索引为父页面索引
             page_idx = parent_idx;
         }
     }
@@ -264,6 +283,7 @@ impl PagedMemory {
     fn page_changed(&mut self, page_idx: u32, state: PageState) {
         let info = &self.image.info;
 
+        // 计算页面状态变化所需的周期数
         let page_cycles = if page_idx == info.root_idx {
             let num_root_entries = info.num_root_entries as usize;
             cycles_per_page(num_root_entries / 2)
@@ -271,9 +291,12 @@ impl PagedMemory {
             cycles_per_page(BLOCKS_PER_PAGE)
         };
 
+        // 记录页面状态变化的调试信息
         tracing::trace!("page_changed(0x{page_idx:05x}, {state:?}) <= {page_cycles}");
+        // 增加总周期数
         self.cycles += page_cycles;
 
+        // 更新页面状态并记录操作
         let old = self.page_states.insert(page_idx, state);
         let action = match state {
             PageState::Loaded => Action::PageRead(page_idx, page_cycles),
