@@ -128,27 +128,79 @@ pub struct SimpleSession {
 }
 
 #[derive(Debug)]
+/// 挂起状态结构体
+/// Pending state struct
 struct PendingState {
+    /// 程序计数器
+    /// Program counter
     pc: ByteAddr,
+    /// 指令
+    /// Instruction
     insn: u32,
+    /// 周期计数
+    /// Cycle count
     cycles: usize,
+    /// 系统调用记录
+    /// Syscall record
     syscall: Option<SyscallRecord>,
+    /// 输出摘要
+    /// Output digest
     output_digest: Option<Digest>,
+    /// 退出代码
+    /// Exit code
     exit_code: Option<ExitCode>,
+    /// 事件集合
+    /// Event set
     events: BTreeSet<TraceEvent>,
 }
+/*
 
+ */
+/// 执行器结构体
+/// new ：创建一个新的 Executor 实例。
+///run  ：运行执行器，执行指令并处理系统调用。
+/// advance： 推进执行状态进执行状态，提交当前挂起状态并更新程序计数器。
+/// reset  ：重置执行器状态到初始状态。
+/// ecall_halt  ：处理 HALT 系统调用，终止或暂停执行。
+/// ecall_input  ：处理 INPUT 系统调用，从输入摘要中加载一个字。
+/// ecall_software  ：处理 SOFTWARE 系统调用，执行软件定义的系统调用。
+/// ecall_sha  ：处理 SHA 系统调用，执行 SHA-256 哈希运算。
+/// ecall_bigint  ：处理 BIGINT 系统调用，执行模乘运算。
+/// ecall_bigint2：处理 BIGINT2 系统调用，执行大整数运算。
+/// Executor struct
 pub struct Executor<'a, 'b, S: Syscall> {
+    /// 当前程序计数器
+    /// Current program counter
     pc: ByteAddr,
+    /// 指令周期计数
+    /// Instruction cycle count
     insn_cycles: usize,
+    /// 分页内存管理器
+    /// Paged memory manager
     pager: PagedMemory,
+    /// 退出代码
+    /// Exit code
     exit_code: Option<ExitCode>,
+    /// 系统调用记录
+    /// Syscall records
     syscalls: Vec<SyscallRecord>,
+    /// 系统调用处理器
+    /// Syscall handler
     syscall_handler: &'a S,
+    /// 输入摘要
+    /// Input digest
     input_digest: Digest,
+    /// 输出摘要
+    /// Output digest
     output_digest: Option<Digest>,
+    /// 挂起状态
+    /// Pending state
     pending: PendingState,
+    /// 跟踪回调列表
+    /// Trace callback list
     trace: Vec<Rc<RefCell<dyn TraceCallback + 'b>>>,
+    /// 会话周期计数
+    /// Session cycle count
     cycles: SessionCycles,
 }
 
@@ -163,35 +215,39 @@ impl PendingState {
 }
 
 impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
-    pub fn new(
-        image: MemoryImage,
-        syscall_handler: &'a S,
-        input_digest: Option<Digest>,
-        trace: Vec<Rc<RefCell<dyn TraceCallback + 'b>>>,
-    ) -> Self {
-        let pc = ByteAddr(image.pc);
-        Self {
-            pc,
-            insn_cycles: 0,
-            pager: PagedMemory::new(image),
-            exit_code: None,
-            syscalls: Vec::new(),
-            syscall_handler,
-            input_digest: input_digest.unwrap_or_default(),
-            output_digest: None,
-            pending: PendingState {
-                pc,
-                insn: 0,
-                cycles: 0,
-                syscall: None,
-                output_digest: None,
-                exit_code: None,
-                events: BTreeSet::new(),
-            },
-            trace,
-            cycles: SessionCycles::default(),
-        }
+    /// 创建一个新的执行器实例
+/// Creates a new executor instance
+pub fn new(
+    image: MemoryImage, // 内存镜像
+    syscall_handler: &'a S, // 系统调用处理器
+    input_digest: Option<Digest>, // 输入摘要
+    trace: Vec<Rc<RefCell<dyn TraceCallback + 'b>>>, // 跟踪回调列表
+) -> Self {
+    // 获取程序计数器
+    // Get the program counter
+    let pc = ByteAddr(image.pc);
+    Self {
+        pc, // 当前程序计数器
+        insn_cycles: 0, // 指令周期计数
+        pager: PagedMemory::new(image), // 分页内存管理器
+        exit_code: None, // 退出代码
+        syscalls: Vec::new(), // 系统调用记录
+        syscall_handler, // 系统调用处理器
+        input_digest: input_digest.unwrap_or_default(), // 输入摘要
+        output_digest: None, // 输出摘要
+        pending: PendingState { // 挂起状态
+            pc, // 程序计数器
+            insn: 0, // 指令
+            cycles: 0, // 周期计数
+            syscall: None, // 系统调用记录
+            output_digest: None, // 输出摘要
+            exit_code: None, // 退出代码
+            events: BTreeSet::new(), // 事件集合
+        },
+        trace, // 跟踪回调列表
+        cycles: SessionCycles::default(), // 会话周期计数
     }
+}
 
     pub fn run<F: FnMut(Segment) -> Result<()>>(
         &mut self,

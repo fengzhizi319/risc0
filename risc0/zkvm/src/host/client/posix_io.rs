@@ -42,7 +42,19 @@ impl<'a> Default for PosixIo<'a> {
         new
     }
 }
-
+/*
+PosixIo struct provides POSIX-style I/O operations. Here are the main functions:
+new: Creates a new PosixIo instance.
+default: Provides default initialization with standard input, output, and error streams.
+read_fds: Returns a list of file descriptors for reading.
+write_fds: Returns a list of file descriptors for writing.
+with_read_fd: Associates a file descriptor with a reader.
+with_shared_read_fd: Associates a file descriptor with a shared reader.
+with_write_fd: Associates a file descriptor with a writer.
+with_shared_write_fd: Associates a file descriptor with a shared writer.
+get_reader: Retrieves the reader associated with a file descriptor.
+get_writer: Retrieves the writer associated with a file descriptor.
+ */
 impl<'a> PosixIo<'a> {
     pub fn new() -> Self {
         Self {
@@ -79,6 +91,7 @@ impl<'a> PosixIo<'a> {
     where
         T: Write + 'a,
     {
+        // 将文件描述符和写入器插入到 `write_fds` 映射中
         self.write_fds.insert(fd, writer);
         self
     }
