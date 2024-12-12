@@ -199,46 +199,65 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
         max_cycles: Option<u64>,
         mut callback: F,
     ) -> Result<ExecutorResult> {
-        // at least one HaltCycle needs to appear in the body
+        // At least one HaltCycle needs to appear in the body
         const MIN_HALT_CYCLES: usize = 1;
-        // a final "is_done" PageFault cycle is required when a split occurs
+        // A final "is_done" PageFault cycle is required when a split occurs
         const PAGE_FINI_CYCLES: usize = 1;
-        // leave room for reserved cycles
+        // Leave room for reserved cycles
         const RESERVED_CYCLES: usize =
             INIT_CYCLES + MIN_HALT_CYCLES + PAGE_FINI_CYCLES + FINI_CYCLES + ZK_CYCLES;
+        // Calculate the segment limit by subtracting reserved cycles from the total cycles
         let segment_limit = (1 << segment_po2) - RESERVED_CYCLES;
 
+        // Reset the executor state
         self.reset();
 
+        // Create a new emulator instance
         let mut emu = Emulator::new();
+        // Initialize the segment counter
         let mut segments = 0;
+        // Get the initial system state from the memory image
         let initial_state = self.pager.image.get_system_state();
 
+        // Main execution loop
         loop {
+            // Break the loop if an exit code is set
             if self.exit_code.is_some() {
                 break;
             }
 
+            // Check if the user cycle limit is exceeded
             if let Some(max_cycles) = max_cycles {
                 if self.cycles.user >= max_cycles as usize {
                     bail!("Session limit exceeded");
                 }
             }
 
+            // Execute a single step in the emulator
             emu.step(self)?;
 
+            // Calculate the total cycles used in the current segment
             let segment_cycles = self.insn_cycles + self.pager.cycles + self.pending.cycles;
             if segment_cycles < segment_limit {
+                // Advance to the next instruction if within the segment limit
                 self.advance()?;
             } else if self.insn_cycles == 0 {
+                // Bail if the segment limit is too small for the current instruction
                 bail!(
-                    "segment limit ({segment_limit}) too small for instruction at pc: {:?}",
-                    self.pc
-                );
+                "segment limit ({segment_limit}) too small for instruction at pc: {:?}",
+                self.pc
+            );
             } else {
+                // Undo the last pager operation and split the segment
                 self.pager.undo();
+
+                // Calculate the total cycles used in the current segment, including reserved cycles
                 let used_cycles = self.insn_cycles + self.pager.cycles + RESERVED_CYCLES;
+
+                // Calculate the padding needed to reach the next power of two boundary for the segment
                 let po2_padding = (1 << segment_po2) - used_cycles;
+
+                // Log the split operation details for debugging purposes
                 tracing::debug!(
                     "split: {} + {} + {RESERVED_CYCLES} = {used_cycles}, padding: {po2_padding}, pending: {:?}",
                     self.insn_cycles,
@@ -246,265 +265,378 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
                     self.pending
                 );
 
-                // split
+
+                // Commit the current state and create a new segment
                 let (pre_state, partial_image, post_state) = self.pager.commit(self.pc);
+
+                // Create a new segment with the committed state and other relevant data
                 callback(Segment {
-                    partial_image,
-                    pre_state,
-                    post_state,
-                    syscalls: mem::take(&mut self.syscalls),
-                    insn_cycles: self.insn_cycles,
-                    po2: segment_po2,
-                    exit_code: ExitCode::SystemSplit,
-                    index: segments,
-                    input_digest: self.input_digest,
-                    output_digest: self.output_digest,
+                    partial_image, // The partial memory image of the segment
+                    pre_state, // The system state before the segment execution
+                    post_state, // The system state after the segment execution
+                    syscalls: mem::take(&mut self.syscalls), // The list of syscalls made during the segment
+                    insn_cycles: self.insn_cycles, // The number of instruction cycles used in the segment
+                    po2: segment_po2, // The power of two for the segment size
+                    exit_code: ExitCode::SystemSplit, // The exit code indicating the segment was split
+                    index: segments, // The index of the segment
+                    input_digest: self.input_digest, // The input digest for the segment
+                    output_digest: self.output_digest, // The output digest for the segment
                 })?;
+
+                // Increment the segment counter
                 segments += 1;
+
+                // Update the total cycles used with the segment size
                 self.cycles.total += 1 << segment_po2;
+
+                // Update the paging cycles with the cycles used by the pager
                 self.cycles.paging += self.pager.cycles;
+
+                // Update the reserved cycles with the padding and reserved cycles
                 self.cycles.reserved += po2_padding + RESERVED_CYCLES;
+
+                // Clear the pager state for the next segment
                 self.pager.clear();
+
+                // Reset the instruction cycles counter
                 self.insn_cycles = 0;
 
-                // replay the current instruction in a new segment
-                self.pending.pc = self.pc;
-                self.pending.cycles = 0;
+                // Replay the current instruction in a new segment
+                self.pending.pc = self.pc; // Set the program counter to the current instruction
+                self.pending.cycles = 0; // Reset the pending cycles counter
             }
         }
 
+        // Commit the final state and create the last segment
         let (pre_state, partial_image, post_state) = self.pager.commit(self.pc);
+
+        // Calculate the total cycles used in the current segment, including reserved cycles
         let segment_cycles = self.insn_cycles + self.pager.cycles + RESERVED_CYCLES;
+
+        // Determine the power of two that is greater than or equal to the segment cycles
         let po2 = log2_ceil(segment_cycles.next_power_of_two());
+
+        // Calculate the padding needed to reach the next power of two boundary
         let po2_padding = (1 << po2) - segment_cycles;
+
+        // Retrieve the exit code, which should be set at this point
         let exit_code = self.exit_code.unwrap();
 
+        // Create a new segment with the committed state and other relevant data
         callback(Segment {
-            partial_image,
-            pre_state: pre_state.clone(),
-            post_state: post_state.clone(),
-            syscalls: mem::take(&mut self.syscalls),
-            insn_cycles: self.insn_cycles,
-            po2,
-            exit_code,
-            index: segments,
-            input_digest: self.input_digest,
-            output_digest: self.output_digest,
+            partial_image, // The partial memory image of the segment
+            pre_state: pre_state.clone(), // The system state before the segment execution
+            post_state: post_state.clone(), // The system state after the segment execution
+            syscalls: mem::take(&mut self.syscalls), // The list of syscalls made during the segment
+            insn_cycles: self.insn_cycles, // The number of instruction cycles used in the segment
+            po2, // The power of two for the segment size
+            exit_code, // The exit code indicating the reason for segment termination
+            index: segments, // The index of the segment
+            input_digest: self.input_digest, // The input digest for the segment
+            output_digest: self.output_digest, // The output digest for the segment
         })?;
+
+        // Increment the segment counter
         segments += 1;
+
+        // Update the total cycles used with the segment size
         self.cycles.total += 1 << po2;
+
+        // Update the paging cycles with the cycles used by the pager
         self.cycles.paging += self.pager.cycles;
+
+        // Update the reserved cycles with the padding and reserved cycles
         self.cycles.reserved += po2_padding + RESERVED_CYCLES;
 
-        // NOTE: When a segment ends in a Halted(_) state, the post_state will be null.
+        // When a segment ends in a Halted(_) state, the post_state will be null
         let post_state = match exit_code {
             ExitCode::Halted(_) => SystemState {
-                pc: 0,
-                merkle_root: Digest::ZERO,
+                pc: 0, // Set the program counter to 0
+                merkle_root: Digest::ZERO, // Set the Merkle root to zero
             },
-            _ => post_state,
+            _ => post_state, // Otherwise, use the existing post_state
         };
 
+        // Return the execution result
         Ok(ExecutorResult {
-            segments,
-            exit_code,
-            post_image: self.pager.image.clone(),
-            user_cycles: self.cycles.user.try_into()?,
-            paging_cycles: self.cycles.paging.try_into()?,
-            reserved_cycles: self.cycles.reserved.try_into()?,
-            total_cycles: self.cycles.total.try_into()?,
-            pre_state: initial_state,
-            post_state,
-            output_digest: self.output_digest,
+            segments, // The total number of segments
+            exit_code, // The exit code of the execution
+            post_image: self.pager.image.clone(), // The final memory image after execution
+            user_cycles: self.cycles.user.try_into()?, // The number of user cycles used
+            paging_cycles: self.cycles.paging.try_into()?, // The number of paging cycles used
+            reserved_cycles: self.cycles.reserved.try_into()?, // The number of reserved cycles used
+            total_cycles: self.cycles.total.try_into()?, // The total number of cycles used
+            pre_state: initial_state, // The initial system state before execution
+            post_state, // The final system state after execution
+            output_digest: self.output_digest, // The output digest of the execution
         })
     }
 
+    // Advances the execution state by committing the current pending state and updating the program counter.
     fn advance(&mut self) -> Result<()> {
+        // Iterate over all trace callbacks and notify them of the instruction start event.
         for trace in &self.trace {
             trace
                 .borrow_mut()
                 .trace_callback(TraceEvent::InstructionStart {
-                    cycle: self.cycles.user.try_into()?,
-                    pc: self.pc.0,
-                    insn: self.pending.insn,
+                    cycle: self.cycles.user.try_into()?, // Current user cycle count
+                    pc: self.pc.0, // Current program counter
+                    insn: self.pending.insn, // Current instruction
                 })?;
 
+            // Notify trace callbacks of all pending events.
             for event in &self.pending.events {
                 trace.borrow_mut().trace_callback(event.clone()).unwrap();
             }
         }
 
+        // Update the program counter to the pending program counter.
         self.pc = self.pending.pc;
+        // Add the pending cycles to the instruction cycles.
         self.insn_cycles += self.pending.cycles;
+        // Add the pending cycles to the user cycles.
         self.cycles.user += self.pending.cycles;
+        // Reset the pending cycles to zero.
         self.pending.cycles = 0;
+        // Clear all pending events.
         self.pending.events.clear();
+        // If there is a pending syscall, push it to the syscalls vector.
         if let Some(syscall) = self.pending.syscall.take() {
             self.syscalls.push(syscall);
         }
+        // Take the pending output digest and set it as the current output digest.
         self.output_digest = self.pending.output_digest.take();
+        // Take the pending exit code and set it as the current exit code.
         self.exit_code = self.pending.exit_code.take();
+        // Commit the current step in the pager.
         self.pager.commit_step();
 
         Ok(())
     }
 
+    // Resets the executor state to its initial state.
     fn reset(&mut self) {
+        // Clear the pager state.
         self.pager.clear();
+        // Reset the exit code to None.
         self.exit_code = None;
+        // Clear the syscalls vector.
         self.syscalls.clear();
+        // Reset the output digest to None.
         self.output_digest = None;
+        // Reset the pending state with the current program counter.
         self.pending.reset(self.pc);
+        // Reset the user cycles to zero.
         self.cycles.user = 0;
+        // Reset the total cycles to zero.
         self.cycles.total = 0;
     }
 }
 
 impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
+    // Handle the HALT ecall, which terminates or pauses the execution.
     fn ecall_halt(&mut self) -> Result<bool> {
+        // Load the value of register A0, which contains the halt type and user exit code.
         let a0 = self.load_register(REG_A0)?;
+        // Load the address of the output digest from register A1.
         let output_ptr = self.load_guest_addr_from_register(REG_A1)?;
+        // Load the output digest from the guest memory.
         let output: [u8; DIGEST_BYTES] = self.load_array_from_guest(output_ptr)?;
 
+        // Extract the halt type and user exit code from the value of register A0.
         let halt_type = a0 & 0xff;
         let user_exit = (a0 >> 8) & 0xff;
 
+        // Log the halt type and user exit code for debugging purposes.
         tracing::debug!("ecall_halt({halt_type}, {user_exit})");
 
+        // Set the pending exit code based on the halt type.
         self.pending.exit_code = match halt_type {
-            halt::TERMINATE => Some(ExitCode::Halted(user_exit)),
-            halt::PAUSE => Some(ExitCode::Paused(user_exit)),
-            _ => bail!("Illegal halt type: {halt_type}"),
+            halt::TERMINATE => Some(ExitCode::Halted(user_exit)), // Terminate the execution.
+            halt::PAUSE => Some(ExitCode::Paused(user_exit)), // Pause the execution.
+            _ => bail!("Illegal halt type: {halt_type}"), // Invalid halt type.
         };
+        // Set the pending output digest.
         self.pending.output_digest = Some(output.into());
+        // Advance the program counter to the next instruction.
         self.pending.pc = self.pc + WORD_SIZE;
 
         Ok(true)
     }
 
+    // Handle the INPUT ecall, which loads a word from the input digest.
     fn ecall_input(&mut self) -> Result<bool> {
+        // Log the current instruction cycle for debugging purposes.
         tracing::debug!("[{}] ecall_input", self.insn_cycles);
+        // Load the value of register A0, which contains the index of the word to load.
         let a0 = self.load_register(REG_A0)? as usize;
+        // Ensure the index is within the valid range.
         ensure!(a0 < DIGEST_WORDS, "sys_input index out of range");
+        // Load the word from the input digest at the specified index.
         let word = self.input_digest.as_words()[a0];
+        // Store the loaded word into register A0.
         self.store_register(REG_A0, word)?;
 
+        // Increment the pending cycles by 1.
         self.pending.cycles += 1;
+        // Advance the program counter to the next instruction.
         self.pending.pc = self.pc + WORD_SIZE;
 
         Ok(true)
     }
 
+    // Handle the SOFTWARE ecall, which performs a software-defined system call.
     fn ecall_software(&mut self) -> Result<bool> {
+        // Log the current instruction cycle for debugging purposes.
         tracing::debug!("[{}] ecall_software", self.insn_cycles);
+        // Load the address of the guest memory region to store the result from register A0.
         let into_guest_ptr = ByteAddr(self.load_register(REG_A0)?);
+        // Load the length of the guest memory region from register A1.
         let into_guest_len = self.load_register(REG_A1)? as usize;
+        // Ensure the guest memory address is valid if the length is greater than 0.
         if into_guest_len > 0 && !is_guest_memory(into_guest_ptr.0) {
             bail!("{into_guest_ptr:?} is an invalid guest address");
         }
+        // Load the address of the syscall name string from register A2.
         let name_ptr = self.load_guest_addr_from_register(REG_A2)?;
+        // Load the syscall name string from the guest memory.
         let syscall_name = self.peek_string(name_ptr)?;
+        // Calculate the end address of the syscall name string.
         let name_end = name_ptr + syscall_name.len();
+        // Ensure the end address of the syscall name string is valid.
         Self::check_guest_addr(name_end)?;
+        // Log the syscall name and guest memory length for debugging purposes.
         tracing::trace!("ecall_software({syscall_name}, into_guest: {into_guest_len})");
 
+        // Calculate the number of chunks needed to transfer the result to the guest memory.
         let chunks = align_up(into_guest_len, IO_CHUNK_WORDS) / IO_CHUNK_WORDS;
 
+        // Check if the syscall has been previously recorded.
         let syscall = if let Some(syscall) = &self.pending.syscall {
+            // Log the replayed syscall for debugging purposes.
             tracing::debug!("Replay syscall: {syscall:?}");
             syscall.clone()
         } else {
+            // Create a buffer to store the result to be transferred to the guest memory.
             let mut to_guest = vec![0u32; into_guest_len];
 
+            // Perform the syscall using the syscall handler.
             let (a0, a1) = self
                 .syscall_handler
                 .syscall(&syscall_name, self, &mut to_guest)?;
 
+            // Record the syscall result.
             let syscall = SyscallRecord {
                 to_guest,
                 regs: (a0, a1),
             };
+            // Store the recorded syscall in the pending state.
             self.pending.syscall = Some(syscall.clone());
             syscall
         };
 
-        // The guest uses a null pointer to indicate that a transfer from host
-        // to guest is not needed.
+        // Transfer the result to the guest memory if the length is greater than 0 and the address is not null.
         if into_guest_len > 0 && !into_guest_ptr.is_null() {
             Self::check_guest_addr(into_guest_ptr + into_guest_len)?;
             self.store_region(into_guest_ptr, bytemuck::cast_slice(&syscall.to_guest))?
         }
 
+        // Store the syscall result registers into registers A0 and A1.
         let (a0, a1) = syscall.regs;
         self.store_register(REG_A0, a0)?;
         self.store_register(REG_A1, a1)?;
 
+        // Log the syscall result for debugging purposes.
         tracing::trace!("{syscall:08x?}");
 
+        // Increment the pending cycles by the number of chunks plus 1.
         self.pending.cycles += chunks + 1; // syscallBody + syscallFini
+        // Advance the program counter to the next instruction.
         self.pending.pc = self.pc + WORD_SIZE;
 
         Ok(true)
     }
 
+    // Handle the SHA ecall, which performs SHA-256 hashing.
     fn ecall_sha(&mut self) -> Result<bool> {
+        // Log the current instruction cycle for debugging purposes.
         tracing::debug!("[{}] ecall_sha", self.insn_cycles);
+
+        // Load the address of the output state from register A0.
         let state_out_ptr = self.load_guest_addr_from_register(REG_A0)?;
+        // Load the address of the input state from register A1.
         let state_in_ptr = self.load_guest_addr_from_register(REG_A1)?;
+        // Load the number of blocks to process from register A4.
         let count = self.load_register(REG_A4)?;
 
+        // Load the input state from the guest memory.
         let state_in: [u8; DIGEST_BYTES] = self.load_array_from_guest(state_in_ptr)?;
+        // Convert the input state to big-endian format.
         let mut state: [u32; DIGEST_WORDS] = bytemuck::cast_slice(&state_in).try_into().unwrap();
         for word in &mut state {
             *word = word.to_be();
         }
 
+        // If there are blocks to process, load and hash them.
         if count > 0 {
+            // Load the addresses of the first and second blocks from registers A2 and A3.
             let mut block1_ptr = self.load_guest_addr_from_register(REG_A2)?;
             let mut block2_ptr = self.load_guest_addr_from_register(REG_A3)?;
 
-            // tracing::debug!("ecall_sha: start state: {state:08x?}");
+            // Initialize a buffer to store the blocks.
             let mut block = [0u32; BLOCK_WORDS];
 
+            // Process each block.
             for _ in 0..count {
+                // Split the buffer into two parts for the two blocks.
                 let (digest1, digest2) = block.split_at_mut(DIGEST_WORDS);
+                // Load the first block from the guest memory.
                 for (i, word) in digest1.iter_mut().enumerate() {
                     *word = self.load_u32_from_guest(block1_ptr + (i * WORD_SIZE))?;
                 }
+                // Load the second block from the guest memory.
                 for (i, word) in digest2.iter_mut().enumerate() {
                     *word = self.load_u32_from_guest(block2_ptr + (i * WORD_SIZE))?;
                 }
-                // tracing::debug!("Compressing block {block:02x?}");
+                // Compress the blocks using SHA-256.
                 sha2::compress256(
                     &mut state,
                     &[*GenericArray::from_slice(bytemuck::cast_slice(&block))],
                 );
 
+                // Advance the block pointers to the next blocks.
                 block1_ptr += BLOCK_BYTES;
                 block2_ptr += BLOCK_BYTES;
             }
         }
 
-        // tracing::debug!("ecall_sha: final state: {state:08x?}");
+        // Convert the final state back to little-endian format.
         for word in &mut state {
             *word = u32::from_be(*word);
         }
 
+        // Store the final state into the guest memory.
         self.store_region_into_guest(state_out_ptr, bytemuck::cast_slice(&state))?;
 
+        // Increment the pending cycles by the number of SHA cycles.
         self.pending.cycles += sha_cycles(count as usize);
+        // Advance the program counter to the next instruction.
         self.pending.pc = self.pc + WORD_SIZE;
 
         Ok(true)
     }
 
+    // Handle the BIGINT ecall, which performs modular multiplication.
     fn ecall_bigint(&mut self) -> Result<bool> {
+        // Load the operation code from register A1.
         let op = self.load_register(REG_A1)?;
+        // Load the addresses of the result, operand X, operand Y, and modulus N from registers A0, A2, A3, and A4.
         let z_ptr = self.load_guest_addr_from_register(REG_A0)?;
         let x_ptr = self.load_guest_addr_from_register(REG_A2)?;
         let y_ptr = self.load_guest_addr_from_register(REG_A3)?;
         let n_ptr = self.load_guest_addr_from_register(REG_A4)?;
 
+        // Helper function to load a bigint from the guest memory.
         let mut load_bigint_le_bytes = |ptr: ByteAddr| -> Result<[u8; bigint::WIDTH_BYTES]> {
             let mut arr = [0u32; bigint::WIDTH_WORDS];
             for (i, word) in arr.iter_mut().enumerate() {
@@ -515,16 +647,17 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             Ok(bytemuck::cast(arr))
         };
 
+        // Ensure the operation code is 0.
         if op != 0 {
             bail!("ecall_bigint: op must be set to 0");
         }
 
-        // Load inputs.
+        // Load the operands and modulus from the guest memory.
         let x = U256::from_le_bytes(load_bigint_le_bytes(x_ptr)?);
         let y = U256::from_le_bytes(load_bigint_le_bytes(y_ptr)?);
         let n = U256::from_le_bytes(load_bigint_le_bytes(n_ptr)?);
 
-        // Compute modular multiplication, or simply multiplication if n == 0.
+        // Compute the result of the modular multiplication.
         let z: U256 = if n == U256::ZERO {
             x.checked_mul(&y).unwrap()
         } else {
@@ -534,7 +667,7 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             z.resize()
         };
 
-        // Store result.
+        // Store the result into the guest memory.
         for (i, word) in bytemuck::cast::<_, [u32; bigint::WIDTH_WORDS]>(z.to_le_bytes())
             .into_iter()
             .enumerate()
@@ -542,40 +675,52 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             self.store_u32_into_guest(z_ptr + (i * WORD_SIZE) as u32, word.to_le())?;
         }
 
+        // Increment the pending cycles by the number of BIGINT cycles.
         self.pending.cycles += BIGINT_CYCLES;
+        // Advance the program counter to the next instruction.
         self.pending.pc = self.pc + WORD_SIZE;
 
         Ok(true)
     }
 
+    // Handle the BIGINT2 ecall, which performs operations on large integers.
     fn ecall_bigint2(&mut self) -> Result<bool> {
+        // Load the addresses of the blob, nondeterministic program, verification program, and constants from registers A0, T1, T2, and T3.
         let blob_ptr = self.load_guest_addr_from_register(REG_A0)?.waddr();
         let nondet_program_ptr = self.load_guest_addr_from_register(REG_T1)?;
         let verify_program_ptr = self.load_guest_addr_from_register(REG_T2)?;
         let consts_ptr = self.load_guest_addr_from_register(REG_T3)?;
 
+        // Load the sizes of the nondeterministic program, verification program, and constants from the blob.
         let nondet_program_size = self.load_u32_from_guest(blob_ptr.baddr())?;
         let verify_program_size = self.load_u32_from_guest((blob_ptr + 1u32).baddr())?;
         let consts_size = self.load_u32_from_guest((blob_ptr + 2u32).baddr())?;
 
+        // Load the nondeterministic program from the guest memory.
         let program_bytes = self
             .load_region_from_guest(nondet_program_ptr, nondet_program_size * WORD_SIZE as u32)?;
         let mut cursor = Cursor::new(program_bytes);
         let program = bibc::Program::decode(&mut cursor)?;
+        // Evaluate the nondeterministic program.
         program.eval(self)?;
 
+        // Load the verification program and constants from the guest memory.
         self.load_region_from_guest(verify_program_ptr, verify_program_size * WORD_SIZE as u32)?;
         self.load_region_from_guest(consts_ptr, consts_size * WORD_SIZE as u32)?;
 
+        // Calculate the number of cycles needed for the verification program.
         let cycles = verify_program_size as usize + 1;
         tracing::info!("bigint2: {cycles} cycles");
 
+        // Increment the pending cycles by the number of cycles needed.
         self.pending.cycles += cycles;
+        // Advance the program counter to the next instruction.
         self.pending.pc = self.pc + WORD_SIZE;
 
         Ok(true)
     }
 
+    /// Check if the given address is a valid guest address.
     fn check_guest_addr(addr: ByteAddr) -> Result<ByteAddr> {
         if !is_guest_memory(addr.0) {
             bail!("{addr:?} is an invalid guest address");
@@ -583,86 +728,129 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
         Ok(addr)
     }
 
+    /// Load a guest address from the specified register.
     fn load_guest_addr_from_register(&mut self, idx: usize) -> Result<ByteAddr> {
+        // Load the value of the specified register and convert it to a ByteAddr.
         let addr = ByteAddr(self.load_register(idx)?);
+        // Check if the loaded address is a valid guest address.
         Self::check_guest_addr(addr)
     }
 
+    /// Load a 32-bit word from the guest memory.
     fn load_u32_from_guest(&mut self, addr: ByteAddr) -> Result<u32> {
+        // Check if the address is a valid guest address.
         Self::check_guest_addr(addr)?;
+        // Load the 32-bit word from the guest memory at the word-aligned address.
         self.load_memory(addr.waddr())
     }
 
+    /// Load an array of bytes from the guest memory.
     fn load_array_from_guest<const N: usize>(&mut self, addr: ByteAddr) -> Result<[u8; N]> {
-        // Self::check_guest_addr_range(addr, addr + u32::try_from(N)?)?;
+        // Check if the starting address is a valid guest address.
         Self::check_guest_addr(addr)?;
+        // Check if the ending address is a valid guest address.
         Self::check_guest_addr(addr + N)?;
+        // Load the array of bytes from the specified address.
         self.load_array(addr)
     }
 
+    /// Load an array of bytes from the specified address.
     fn load_array<const N: usize>(&mut self, addr: ByteAddr) -> Result<[u8; N]> {
+        // Initialize a vector to store the bytes.
         let mut bytes = Vec::new();
+        // Iterate over the range and load each byte from the guest memory.
         for i in 0..N {
             bytes.push(self.load_u8(addr + i)?);
         }
+        // Convert the vector to an array and return it.
         let ret = array::from_fn(|i| bytes[i]);
-        // tracing::trace!("load_array({addr:?}) -> {ret:02x?}");
         Ok(ret)
     }
 
+    /// Load a region of bytes from the guest memory.
     fn load_region_from_guest(&mut self, base: ByteAddr, size: u32) -> Result<Vec<u8>> {
+        // Initialize a vector to store the bytes of the region.
         let mut region = Vec::new();
+        // Iterate over the range and load each byte from the guest memory.
         for i in 0..size {
             let addr = base + i;
+            // Check if the current address is a valid guest address.
             Self::check_guest_addr(addr)?;
             region.push(self.load_u8(addr)?);
         }
+        // Return the loaded region as a vector of bytes.
         Ok(region)
     }
 
+    /// Load a byte from the guest memory.
     fn load_u8(&mut self, addr: ByteAddr) -> Result<u8> {
+        // Load the 32-bit word from the guest memory at the word-aligned address.
         let word = self.pager.load(addr.waddr());
+        // Convert the 32-bit word to an array of bytes in little-endian format.
         let bytes = word.to_le_bytes();
+        // Calculate the byte offset within the 32-bit word.
         let byte_offset = addr.0 as usize % WORD_SIZE;
+        // Return the byte at the calculated offset.
         Ok(bytes[byte_offset])
     }
 
+    /// Peek a null-terminated string from the guest memory starting at the given address.
     fn peek_string(&mut self, mut addr: ByteAddr) -> Result<String> {
-        // tracing::trace!("load_string: 0x{addr:08x}");
+        // Initialize a buffer to store the bytes of the string.
         let mut buf = Vec::new();
         loop {
+            // Load a byte from the guest memory at the current address.
             let bytes = self.peek_u8(addr)?;
+            // Break the loop if the byte is null (end of string).
             if bytes == 0 {
                 break;
             }
+            // Push the byte to the buffer.
             buf.push(bytes);
+            // Increment the address to the next byte.
             addr += 1u32;
         }
+        // Convert the buffer to a UTF-8 string and return it.
         Ok(String::from_utf8(buf)?)
     }
 
+    /// Store a 32-bit word into the guest memory at the specified address.
     fn store_u32_into_guest(&mut self, addr: ByteAddr, data: u32) -> Result<()> {
+        // Check if the address is a valid guest address.
         Self::check_guest_addr(addr)?;
+        // Store the 32-bit word into the guest memory.
         self.store_memory(addr.waddr(), data)
     }
 
+    /// Store a region of bytes into the guest memory starting at the specified address.
     fn store_region_into_guest(&mut self, addr: ByteAddr, slice: &[u8]) -> Result<()> {
+        // Check if the starting address is a valid guest address.
         Self::check_guest_addr(addr)?;
+        // Check if the ending address is a valid guest address.
         Self::check_guest_addr(addr + slice.len())?;
+        // Store the region of bytes into the guest memory.
         self.store_region(addr, slice)
     }
 
+    /// Store a single byte into the guest memory at the specified address.
     fn raw_store_u8(&mut self, addr: ByteAddr, byte: u8) -> Result<()> {
+        // Calculate the byte offset within the 32-bit word.
         let byte_offset = addr.0 as usize % WORD_SIZE;
+        // Load the 32-bit word from the guest memory at the address.
         let word = self.peek_u32(addr)?;
+        // Convert the 32-bit word to an array of bytes.
         let mut bytes = word.to_le_bytes();
+        // Set the byte at the calculated offset to the new byte value.
         bytes[byte_offset] = byte;
+        // Convert the array of bytes back to a 32-bit word.
         let word = u32::from_le_bytes(bytes);
+        // Store the modified 32-bit word back into the guest memory.
         self.raw_store_memory(addr.waddr(), word)
     }
 
+    /// Store a region of bytes into the guest memory starting at the specified address.
     fn store_region(&mut self, addr: ByteAddr, slice: &[u8]) -> Result<()> {
-        // tracing::trace!("store_region({addr:?}, {slice:02x?})");
+        // If tracing is enabled, log the memory set event.
         if !self.trace.is_empty() {
             self.pending.events.insert(TraceEvent::MemorySet {
                 addr: addr.0,
@@ -670,6 +858,7 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             });
         }
 
+        // Iterate over the slice and store each byte into the guest memory.
         slice
             .iter()
             .enumerate()
@@ -678,8 +867,9 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
         Ok(())
     }
 
+    // /Store a 32-bit word into the guest memory at the specified word address.
     fn raw_store_memory(&mut self, addr: WordAddr, data: u32) -> Result<()> {
-        // tracing::trace!("store_mem({:?}, 0x{data:08x})", addr.baddr());
+        // Store the 32-bit word into the guest memory.
         self.pager.store(addr, data)
     }
 }

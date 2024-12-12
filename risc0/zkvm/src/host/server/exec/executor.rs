@@ -77,9 +77,13 @@ impl<'a> ExecutorImpl<'a> {
     /// let mut exec = ExecutorImpl::from_elf(env, BENCH_ELF).unwrap();
     /// ```
     pub fn from_elf(mut env: ExecutorEnv<'a>, elf: &[u8]) -> Result<Self> {
+        // 从 ELF 二进制文件加载程序
         let program = Program::load_elf(elf, GUEST_MAX_MEM as u32)?;
+
+        // 创建内存映像
         let image = MemoryImage::new(&program, PAGE_SIZE as u32)?;
 
+        // 如果环境变量中包含 pprof 输出路径，则初始化 profiler
         let profiler = if env.pprof_out.is_some() {
             let profiler = Rc::new(RefCell::new(Profiler::new(elf, None)?));
             env.trace.push(profiler.clone());
@@ -88,6 +92,7 @@ impl<'a> ExecutorImpl<'a> {
             None
         };
 
+        // 使用详细信息初始化 ExecutorImpl
         Self::with_details(env, image, profiler)
     }
 
@@ -108,11 +113,15 @@ impl<'a> ExecutorImpl<'a> {
     /// This will run the executor to get a [Session] which contain the results
     /// of the execution.
     pub fn run(&mut self) -> Result<Session> {
+        // 如果 segment_path 为空，则创建一个临时目录
         if self.env.segment_path.is_none() {
             self.env.segment_path = Some(SegmentPath::TempDir(Arc::new(tempdir()?)));
         }
 
+        // 获取 segment_path
         let path = self.env.segment_path.clone().unwrap();
+
+        // 运行带有回调的执行器
         self.run_with_callback(|segment| Ok(Box::new(FileSegmentRef::new(&segment, &path)?)))
     }
 
@@ -122,20 +131,25 @@ impl<'a> ExecutorImpl<'a> {
     where
         F: FnMut(Segment) -> Result<Box<dyn SegmentRef>>,
     {
+        // Start a new scope for tracing execution
         scope!("execute");
 
+        // Initialize a journal to capture output
         let journal = Journal::default();
         self.env
             .posix_io
             .borrow_mut()
             .with_write_fd(fileno::JOURNAL, journal.clone());
 
+        // Determine the segment limit, defaulting to a predefined value if not set
         let segment_limit_po2 = self
             .env
             .segment_limit_po2
             .unwrap_or(DEFAULT_SEGMENT_LIMIT_PO2 as u32) as usize;
 
+        // Vector to store references to segments
         let mut refs = Vec::new();
+        // Create a new executor instance
         let mut exec = Executor::new(
             self.image.clone(),
             self,
@@ -143,12 +157,16 @@ impl<'a> ExecutorImpl<'a> {
             self.env.trace.clone(),
         );
 
+        // Record the start time for execution
         let start_time = Instant::now();
+        // Run the executor with the specified segment limit and session limit
         let result = exec.run(segment_limit_po2, self.env.session_limit, |inner| {
+            // Check if the exit code expects output
             let output = inner
                 .exit_code
                 .expects_output()
                 .then(|| -> Option<Result<_>> {
+                    // If output is expected, capture the journal buffer
                     inner
                         .output_digest
                         .and_then(|digest| {
@@ -165,48 +183,53 @@ impl<'a> ExecutorImpl<'a> {
                                         .map(|(a, _)| a.clone().into())
                                         .collect::<Vec<_>>(),
                                 )
-                                .into(),
+                                    .into(),
                             })
                         })
                 })
                 .flatten()
                 .transpose()?;
 
+            // Create a new segment with the captured output
             let segment = Segment {
                 index: inner.index as u32,
                 inner,
                 output,
             };
+            // Use the callback to process the segment and store the reference
             let segment_ref = callback(segment)?;
             refs.push(segment_ref);
             Ok(())
         })?;
+        // Calculate the elapsed time for execution
         let elapsed = start_time.elapsed();
 
-        // Set the session_journal to the committed data iff the guest set a non-zero output.
+        // Set the session journal to the committed data if the guest set a non-zero output
         let session_journal = result
             .output_digest
             .and_then(|digest| (digest != Digest::ZERO).then(|| journal.buf.take()));
         if !result.exit_code.expects_output() && session_journal.is_some() {
             tracing::debug!(
-                "dropping non-empty journal due to exit code {:?}: 0x{}",
-                result.exit_code,
-                hex::encode(journal.buf.borrow().as_slice())
-            );
+            "dropping non-empty journal due to exit code {:?}: 0x{}",
+            result.exit_code,
+            hex::encode(journal.buf.borrow().as_slice())
+        );
         };
 
-        // Take (clear out) the list of accessed assumptions.
-        // Leave the assumptions cache so it can be used if execution is resumed from pause.
+        // Clear the list of accessed assumptions, but keep the cache for potential resumption
         let assumptions = self.syscall_table.assumptions_used.take();
         let pending_zkrs = self.syscall_table.pending_zkrs.take();
 
+        // If a profiler is present, finalize and write the report
         if let Some(profiler) = self.profiler.take() {
             let report = profiler.borrow_mut().finalize_to_vec();
             std::fs::write(self.env.pprof_out.as_ref().unwrap(), report)?;
         }
 
+        // Update the memory image with the post-execution state
         self.image = result.post_image.clone();
 
+        // Create a new session with the collected data and execution results
         let session = Session::new(
             refs,
             self.env.input_digest.unwrap_or_default(),
@@ -223,9 +246,11 @@ impl<'a> ExecutorImpl<'a> {
             pending_zkrs,
         );
 
+        // Log the execution time
         tracing::info!("execution time: {elapsed:?}");
         session.log();
 
+        // Return the created session
         Ok(session)
     }
 }
