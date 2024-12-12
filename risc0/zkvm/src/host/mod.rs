@@ -18,7 +18,11 @@ pub(crate) mod api;
 pub(crate) mod client;
 #[cfg(any(feature = "client", feature = "prove"))]
 mod protos;
+
 pub(crate) mod prove_info;
 pub mod recursion;
 #[cfg(feature = "prove")]
-pub(crate) mod server;
+/// public API
+pub mod server;
+
+

@@ -74,7 +74,8 @@ extern crate alloc;
 
 pub mod guest;
 #[cfg(not(target_os = "zkvm"))]
-mod host;
+/// public API
+pub mod host;
 mod receipt;
 mod receipt_claim;
 pub mod serde;

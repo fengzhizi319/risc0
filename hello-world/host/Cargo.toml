@@ -1,0 +1,11 @@
+[package]
+name = "host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+risc0-circuit-rv32im = { path = "../../risc0/circuit/rv32im" }
+methods = { path = "../methods" }
+risc0-zkvm = { path = "../../risc0/zkvm", features = ["prove", "client"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = "1.0"
