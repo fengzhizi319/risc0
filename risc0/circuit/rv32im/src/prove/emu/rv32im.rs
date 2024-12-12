@@ -590,7 +590,19 @@ impl Emulator {
             table: FastDecodeTable::new(),
         }
     }
-
+    /// step 函数在模拟器中执行单步操作。具体来说，它会执行当前指令并更新模拟器的状态。主要步骤如下：
+    /// 1.获取当前的程序计数器（PC）。
+    /// 2.检查指令加载的访问权限，如果访问失败则触发异常。
+    /// 3.从内存中加载指令，并检查指令的合法性，如果非法则触发异常。
+    /// 4.解码指令，获取指令的详细信息。
+    /// 5.根据指令的类别（计算、加载、存储、系统、无效）调用相应的处理函数：
+    /// step_compute：处理计算类指令。
+    /// step_load：处理加载类指令。
+    /// step_store：处理存储类指令。
+    /// step_system：处理系统类指令。
+    /// Invalid：处理无效指令，触发异常。
+    /// 6.如果指令正常结束，调用 on_normal_end 函数。
+    /// 7.返回执行结果。
     pub fn step<C: EmuContext>(&mut self, ctx: &mut C) -> Result<()> {
         let pc = ctx.get_pc();
 
@@ -599,6 +611,12 @@ impl Emulator {
             return Ok(());
         }
 
+        /*
+        word 主要用于从内存中加载当前程序计数器（PC）指向的指令。具体来说，它通过调用
+        ctx.load_memory(pc.waddr()) 方法获取指令数据，并检查指令的合法性。
+        如果指令的低两位不等于 0x03，则触发非法指令异常。这是因为在 RISC-V 指令集中，
+        合法指令的低两位通常为 0x03。
+         */
         let word = ctx.load_memory(pc.waddr())?;
         if word & 0x03 != 0x03 {
             ctx.trap(TrapCause::IllegalInstruction(word))?;
@@ -622,6 +640,13 @@ impl Emulator {
         Ok(())
     }
 
+    ///step_compute 函数的主要作用是处理计算类指令。它根据指令的种类执行相应的计算操作，并将结果存储到目标寄存器中
+    /// 1.获取当前的程序计数器（PC）和目标寄存器（rd）。
+    /// 2.从寄存器中加载源操作数（rs1 和 rs2）。
+    /// 3.根据指令类型（如加法、减法、逻辑运算等）执行相应的计算操作。
+    /// 4.将计算结果存储到目标寄存器（rd）。
+    /// 5.更新程序计数器（PC）。
+    /// 6.如果指令正常结束，返回 true，否则触发相应的异常。
     fn step_compute<M: EmuContext>(
         &mut self,
         ctx: &mut M,

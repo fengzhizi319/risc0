@@ -50,7 +50,7 @@ impl Prover for ExternalProver {
         tracing::debug!("Launching {}", &self.r0vm_path.to_string_lossy());
 
         let image_id = compute_image_id(elf)?;
-        println!("self.r0vm_path: {:?}", self.r0vm_path);
+        //println!("self.r0vm_path: {:?}", self.r0vm_path);
         let client = ApiClient::new_sub_process(&self.r0vm_path)?;
         let binary = Asset::Inline(elf.to_vec().into());
         let prove_info = client.prove(&env, opts, binary)?;

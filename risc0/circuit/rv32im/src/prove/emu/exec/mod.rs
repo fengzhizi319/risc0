@@ -175,7 +175,10 @@ pub struct Executor<'a, 'b, S: Syscall> {
     /// 指令周期计数
     /// Instruction cycle count
     insn_cycles: usize,
-    /// 分页内存管理器
+   /*
+   寄存器的值保存在 PagedMemory 结构中。具体来说，寄存器的值通过 SYSTEM_START 偏移量存储在 PagedMemory 的内存中。
+   load_register 和 store_register 方法用于从 PagedMemory 中加载和存储寄存器的值。
+    */
     /// Paged memory manager
     pager: PagedMemory,
     /// 退出代码
@@ -216,38 +219,38 @@ impl PendingState {
 
 impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
     /// 创建一个新的执行器实例
-/// Creates a new executor instance
-pub fn new(
-    image: MemoryImage, // 内存镜像
-    syscall_handler: &'a S, // 系统调用处理器
-    input_digest: Option<Digest>, // 输入摘要
-    trace: Vec<Rc<RefCell<dyn TraceCallback + 'b>>>, // 跟踪回调列表
-) -> Self {
-    // 获取程序计数器
-    // Get the program counter
-    let pc = ByteAddr(image.pc);
-    Self {
-        pc, // 当前程序计数器
-        insn_cycles: 0, // 指令周期计数
-        pager: PagedMemory::new(image), // 分页内存管理器
-        exit_code: None, // 退出代码
-        syscalls: Vec::new(), // 系统调用记录
-        syscall_handler, // 系统调用处理器
-        input_digest: input_digest.unwrap_or_default(), // 输入摘要
-        output_digest: None, // 输出摘要
-        pending: PendingState { // 挂起状态
-            pc, // 程序计数器
-            insn: 0, // 指令
-            cycles: 0, // 周期计数
-            syscall: None, // 系统调用记录
-            output_digest: None, // 输出摘要
+    /// Creates a new executor instance
+    pub fn new(
+        image: MemoryImage, // 内存镜像
+        syscall_handler: &'a S, // 系统调用处理器
+        input_digest: Option<Digest>, // 输入摘要
+        trace: Vec<Rc<RefCell<dyn TraceCallback + 'b>>>, // 跟踪回调列表
+    ) -> Self {
+        // 获取程序计数器
+        // Get the program counter
+        let pc = ByteAddr(image.pc);
+        Self {
+            pc, // 当前程序计数器
+            insn_cycles: 0, // 指令周期计数
+            pager: PagedMemory::new(image), // 分页内存管理器
             exit_code: None, // 退出代码
-            events: BTreeSet::new(), // 事件集合
-        },
-        trace, // 跟踪回调列表
-        cycles: SessionCycles::default(), // 会话周期计数
+            syscalls: Vec::new(), // 系统调用记录
+            syscall_handler, // 系统调用处理器
+            input_digest: input_digest.unwrap_or_default(), // 输入摘要
+            output_digest: None, // 输出摘要
+            pending: PendingState { // 挂起状态
+                pc, // 程序计数器
+                insn: 0, // 指令
+                cycles: 0, // 周期计数
+                syscall: None, // 系统调用记录
+                output_digest: None, // 输出摘要
+                exit_code: None, // 退出代码
+                events: BTreeSet::new(), // 事件集合
+            },
+            trace, // 跟踪回调列表
+            cycles: SessionCycles::default(), // 会话周期计数
+        }
     }
-}
 
     pub fn run<F: FnMut(Segment) -> Result<()>>(
         &mut self,
@@ -256,33 +259,64 @@ pub fn new(
         mut callback: F,
     ) -> Result<ExecutorResult> {
         // At least one HaltCycle needs to appear in the body
+        // 在执行过程中至少需要一个 HaltCycle
+        /*
+        HaltCycle 是指在程序执行过程中，执行器（Executor）遇到 HALT 指令时所消耗的周期。
+        HALT 指令通常用于终止或暂停程序的执行，因此 HaltCycle 代表了执行 HALT 指令所需的时间周期。
+        在执行过程中，至少需要一个 HaltCycle 来确保程序能够正确处理 HALT 指令并完成相应的操作。
+        MIN_HALT_CYCLES 的作用是在程序执行过程中，确保至少有一个 HaltCycle 被执行。
+        HaltCycle 是指执行器（Executor）遇到 HALT 指令时所消耗的周期。HALT 指令通常用于终止
+        或暂停程序的执行，因此 HaltCycle 代表了执行 HALT 指令所需的时间周期。通过设置 MIN_HALT_CYCLES，
+        可以确保程序能够正确处理 HALT 指令并完成相应的操作。
+         */
         const MIN_HALT_CYCLES: usize = 1;
         // A final "is_done" PageFault cycle is required when a split occurs
+        // 当发生分段时，需要一个最终的 "is_done" PageFault 周期
+        /*
+        PAGE_FINI_CYCLES 的作用是在程序执行过程中，当发生分段时，确保至少有一个 "is_done" PageFault 周期被执行。
+        这个周期用于处理分页操作的结束状态，确保分页操作能够正确完成并提交当前状态。
+        通过设置 PAGE_FINI_CYCLES，可以确保在分段时正确处理分页操作的结束状态。
+         */
         const PAGE_FINI_CYCLES: usize = 1;
         // Leave room for reserved cycles
+        // 为保留周期留出空间
+        /*
+        RESERVED_CYCLES 的作用是在程序执行过程中，为特定的保留周期留出空间。这些保留周期包括初始化周期 (INIT_CYCLES)、
+        最小 HALT 周期 (MIN_HALT_CYCLES)、分页结束周期 (PAGE_FINI_CYCLES)、结束周期 (FINI_CYCLES)
+        和零知识证明周期 (ZK_CYCLES)。通过设置 RESERVED_CYCLES，可以确保在执行过程中为这些关键操作预留足够的周期，
+        以保证程序的正确执行和状态提交。
+         */
         const RESERVED_CYCLES: usize =
             INIT_CYCLES + MIN_HALT_CYCLES + PAGE_FINI_CYCLES + FINI_CYCLES + ZK_CYCLES;
         // Calculate the segment limit by subtracting reserved cycles from the total cycles
+        // 通过从总周期中减去保留周期来计算段限制
         let segment_limit = (1 << segment_po2) - RESERVED_CYCLES;
 
         // Reset the executor state
+        // 重置执行器状态
         self.reset();
 
         // Create a new emulator instance
+        // 创建一个新的模拟器实例
         let mut emu = Emulator::new();
         // Initialize the segment counter
+        // 初始化段计数器
         let mut segments = 0;
         // Get the initial system state from the memory image
+        // 从内存镜像获取初始系统状态，它保存了程序计数器和 Merkle 根等关键信息。
         let initial_state = self.pager.image.get_system_state();
 
         // Main execution loop
+        // 主执行循环
         loop {
             // Break the loop if an exit code is set
+            // 如果设置了退出代码，则跳出循环
             if self.exit_code.is_some() {
                 break;
             }
 
             // Check if the user cycle limit is exceeded
+            // 检查用户周期限制是否超出
             if let Some(max_cycles) = max_cycles {
                 if self.cycles.user >= max_cycles as usize {
                     bail!("Session limit exceeded");
@@ -290,198 +324,226 @@ pub fn new(
             }
 
             // Execute a single step in the emulator
+            // 在模拟器中执行单步操作
             emu.step(self)?;
 
             // Calculate the total cycles used in the current segment
+            // 计算当前段使用的总周期数
             let segment_cycles = self.insn_cycles + self.pager.cycles + self.pending.cycles;
             if segment_cycles < segment_limit {
                 // Advance to the next instruction if within the segment limit
+                // 如果在段限制内，则推进到下一条指令
                 self.advance()?;
             } else if self.insn_cycles == 0 {
                 // Bail if the segment limit is too small for the current instruction
+                // 如果段限制对于当前指令来说太小，则抛出错误
                 bail!(
-                "segment limit ({segment_limit}) too small for instruction at pc: {:?}",
-                self.pc
+            "segment limit ({segment_limit}) too small for instruction at pc: {:?}",
+            self.pc
             );
             } else {
                 // Undo the last pager operation and split the segment
+                // 撤销最后的分页操作并分割段
                 self.pager.undo();
 
                 // Calculate the total cycles used in the current segment, including reserved cycles
+                // 计算当前段使用的总周期数，包括保留周期
                 let used_cycles = self.insn_cycles + self.pager.cycles + RESERVED_CYCLES;
 
                 // Calculate the padding needed to reach the next power of two boundary for the segment
+                // 计算达到段的下一个二次幂边界所需的填充
                 let po2_padding = (1 << segment_po2) - used_cycles;
 
                 // Log the split operation details for debugging purposes
+                // 记录分割操作的详细信息以进行调试
                 tracing::debug!(
-                    "split: {} + {} + {RESERVED_CYCLES} = {used_cycles}, padding: {po2_padding}, pending: {:?}",
-                    self.insn_cycles,
-                    self.pager.cycles,
-                    self.pending
-                );
-
+                "split: {} + {} + {RESERVED_CYCLES} = {used_cycles}, padding: {po2_padding}, pending: {:?}",
+                self.insn_cycles,
+                self.pager.cycles,
+                self.pending
+            );
 
                 // Commit the current state and create a new segment
+                // 提交当前状态并创建新段
                 let (pre_state, partial_image, post_state) = self.pager.commit(self.pc);
 
                 // Create a new segment with the committed state and other relevant data
+                // 使用提交的状态和其他相关数据创建一个新段
                 callback(Segment {
-                    partial_image, // The partial memory image of the segment
-                    pre_state, // The system state before the segment execution
-                    post_state, // The system state after the segment execution
-                    syscalls: mem::take(&mut self.syscalls), // The list of syscalls made during the segment
-                    insn_cycles: self.insn_cycles, // The number of instruction cycles used in the segment
-                    po2: segment_po2, // The power of two for the segment size
-                    exit_code: ExitCode::SystemSplit, // The exit code indicating the segment was split
-                    index: segments, // The index of the segment
-                    input_digest: self.input_digest, // The input digest for the segment
-                    output_digest: self.output_digest, // The output digest for the segment
+                    partial_image, // The partial memory image of the segment 段的部分内存镜像
+                    pre_state, // The system state before the segment execution 段执行前的系统状态
+                    post_state, // The system state after the segment execution 段执行后的系统状态
+                    syscalls: mem::take(&mut self.syscalls), // The list of syscalls made during the segment 段期间进行的系统调用列表
+                    insn_cycles: self.insn_cycles, // The number of instruction cycles used in the segment 段中使用的指令周期数
+                    po2: segment_po2, // The power of two for the segment size 段大小的二次幂
+                    exit_code: ExitCode::SystemSplit, // The exit code indicating the segment was split 表示段被分割的退出代码
+                    index: segments, // The index of the segment 段的索引
+                    input_digest: self.input_digest, // The input digest for the segment 段的输入摘要
+                    output_digest: self.output_digest, // The output digest for the segment 段的输出摘要
                 })?;
 
                 // Increment the segment counter
+                // 增加段计数器
                 segments += 1;
 
                 // Update the total cycles used with the segment size
+                // 使用段大小更新使用的总周期数
                 self.cycles.total += 1 << segment_po2;
 
                 // Update the paging cycles with the cycles used by the pager
+                // 使用分页器使用的周期更新分页周期
                 self.cycles.paging += self.pager.cycles;
 
                 // Update the reserved cycles with the padding and reserved cycles
+                // 使用填充和保留周期更新保留周期
                 self.cycles.reserved += po2_padding + RESERVED_CYCLES;
 
                 // Clear the pager state for the next segment
+                // 清除下一个段的分页器状态
                 self.pager.clear();
 
                 // Reset the instruction cycles counter
+                // 重置指令周期计数器
                 self.insn_cycles = 0;
 
                 // Replay the current instruction in a new segment
-                self.pending.pc = self.pc; // Set the program counter to the current instruction
-                self.pending.cycles = 0; // Reset the pending cycles counter
+                // 在新段中重放当前指令
+                self.pending.pc = self.pc; // Set the program counter to the current instruction 将程序计数器设置为当前指令
+                self.pending.cycles = 0; // Reset the pending cycles counter 重置挂起的周期计数器
             }
         }
 
         // Commit the final state and create the last segment
+        // 提交最终状态并创建最后一个段
         let (pre_state, partial_image, post_state) = self.pager.commit(self.pc);
 
         // Calculate the total cycles used in the current segment, including reserved cycles
+        // 计算当前段使用的总周期数，包括保留周期
         let segment_cycles = self.insn_cycles + self.pager.cycles + RESERVED_CYCLES;
 
         // Determine the power of two that is greater than or equal to the segment cycles
+        // 确定大于或等于段周期数的二次幂
         let po2 = log2_ceil(segment_cycles.next_power_of_two());
 
         // Calculate the padding needed to reach the next power of two boundary
+        // 计算达到下一个二次幂边界所需的填充
         let po2_padding = (1 << po2) - segment_cycles;
 
         // Retrieve the exit code, which should be set at this point
+        // 获取退出代码，此时应已设置
         let exit_code = self.exit_code.unwrap();
 
         // Create a new segment with the committed state and other relevant data
+        // 使用提交的状态和其他相关数据创建一个新段
         callback(Segment {
-            partial_image, // The partial memory image of the segment
-            pre_state: pre_state.clone(), // The system state before the segment execution
-            post_state: post_state.clone(), // The system state after the segment execution
-            syscalls: mem::take(&mut self.syscalls), // The list of syscalls made during the segment
-            insn_cycles: self.insn_cycles, // The number of instruction cycles used in the segment
-            po2, // The power of two for the segment size
-            exit_code, // The exit code indicating the reason for segment termination
-            index: segments, // The index of the segment
-            input_digest: self.input_digest, // The input digest for the segment
-            output_digest: self.output_digest, // The output digest for the segment
+            partial_image, // The partial memory image of the segment 段的部分内存镜像
+            pre_state: pre_state.clone(), // The system state before the segment execution 段执行前的系统状态
+            post_state: post_state.clone(), // The system state after the segment execution 段执行后的系统状态
+            syscalls: mem::take(&mut self.syscalls), // The list of syscalls made during the segment 段期间进行的系统调用列表
+            insn_cycles: self.insn_cycles, // The number of instruction cycles used in the segment 段中使用的指令周期数
+            po2, // The power of two for the segment size 段大小的二次幂
+            exit_code, // The exit code indicating the reason for segment termination 表示段终止原因的退出代码
+            index: segments, // The index of the segment 段的索引
+            input_digest: self.input_digest, // The input digest for the segment 段的输入摘要
+            output_digest: self.output_digest, // The output digest for the segment 段的输出摘要
         })?;
 
         // Increment the segment counter
+        // 增加段计数器
         segments += 1;
 
         // Update the total cycles used with the segment size
+        // 使用段大小更新使用的总周期数
         self.cycles.total += 1 << po2;
 
         // Update the paging cycles with the cycles used by the pager
+        // 使用分页器使用的周期更新分页周期
         self.cycles.paging += self.pager.cycles;
 
         // Update the reserved cycles with the padding and reserved cycles
+        // 使用填充和保留周期更新保留周期
         self.cycles.reserved += po2_padding + RESERVED_CYCLES;
 
         // When a segment ends in a Halted(_) state, the post_state will be null
+        // 当段以 Halted(_) 状态结束时，post_state 将为空
         let post_state = match exit_code {
             ExitCode::Halted(_) => SystemState {
-                pc: 0, // Set the program counter to 0
-                merkle_root: Digest::ZERO, // Set the Merkle root to zero
+                pc: 0, // Set the program counter to 0 将程序计数器设置为 0
+                merkle_root: Digest::ZERO, // Set the Merkle root to zero 将 Merkle 根设置为零
             },
-            _ => post_state, // Otherwise, use the existing post_state
+            _ => post_state, // Otherwise, use the existing post_state 否则，使用现有的 post_state
         };
 
         // Return the execution result
+        // 返回执行结果
         Ok(ExecutorResult {
-            segments, // The total number of segments
-            exit_code, // The exit code of the execution
-            post_image: self.pager.image.clone(), // The final memory image after execution
-            user_cycles: self.cycles.user.try_into()?, // The number of user cycles used
-            paging_cycles: self.cycles.paging.try_into()?, // The number of paging cycles used
-            reserved_cycles: self.cycles.reserved.try_into()?, // The number of reserved cycles used
-            total_cycles: self.cycles.total.try_into()?, // The total number of cycles used
-            pre_state: initial_state, // The initial system state before execution
-            post_state, // The final system state after execution
-            output_digest: self.output_digest, // The output digest of the execution
+            segments, // The total number of segments 段的总数
+            exit_code, // The exit code of the execution 执行的退出代码
+            post_image: self.pager.image.clone(), // The final memory image after execution 执行后的最终内存镜像
+            user_cycles: self.cycles.user.try_into()?, // The number of user cycles used 使用的用户周期数
+            paging_cycles: self.cycles.paging.try_into()?, // The number of paging cycles used 使用的分页周期数
+            reserved_cycles: self.cycles.reserved.try_into()?, // The number of reserved cycles used 使用的保留周期数
+            total_cycles: self.cycles.total.try_into()?, // The total number of cycles used 使用的总周期数
+            pre_state: initial_state, // The initial system state before execution 执行前的初始系统状态
+            post_state, // The final system state after execution 执行后的最终系统状态
+            output_digest: self.output_digest, // The output digest of the execution 执行的输出摘要
         })
     }
 
 
-/// 提交当前挂起状态并更新程序计数器，以推进执行状态。
-/// Advances the execution state by committing the current pending state and updating the program counter.
-fn advance(&mut self) -> Result<()> {
-    // Iterate over all trace callbacks and notify them of the instruction start event.
-    // 遍历所有跟踪回调，并通知它们指令开始事件。
-    for trace in &self.trace {
-        trace
-            .borrow_mut()
-            .trace_callback(TraceEvent::InstructionStart {
-                cycle: self.cycles.user.try_into()?, // Current user cycle count 当前用户周期计数
-                pc: self.pc.0, // Current program counter 当前程序计数器
-                insn: self.pending.insn, // Current instruction 当前指令
-            })?;
+    /// 提交当前挂起状态并更新程序计数器，以推进执行状态。
+    /// Advances the execution state by committing the current pending state and updating the program counter.
+    fn advance(&mut self) -> Result<()> {
+        // Iterate over all trace callbacks and notify them of the instruction start event.
+        // 遍历所有跟踪回调，并通知它们指令开始事件。
+        for trace in &self.trace {
+            trace
+                .borrow_mut()
+                .trace_callback(TraceEvent::InstructionStart {
+                    cycle: self.cycles.user.try_into()?, // Current user cycle count 当前用户周期计数
+                    pc: self.pc.0, // Current program counter 当前程序计数器
+                    insn: self.pending.insn, // Current instruction 当前指令
+                })?;
 
-        // Notify trace callbacks of all pending events.
-        // 通知跟踪回调所有挂起的事件。
-        for event in &self.pending.events {
-            trace.borrow_mut().trace_callback(event.clone()).unwrap();
+            // Notify trace callbacks of all pending events.
+            // 通知跟踪回调所有挂起的事件。
+            for event in &self.pending.events {
+                trace.borrow_mut().trace_callback(event.clone()).unwrap();
+            }
         }
-    }
 
-    // Update the program counter to the pending program counter.
-    // 将程序计数器更新为挂起的程序计数器。
-    self.pc = self.pending.pc;
-    // Add the pending cycles to the instruction cycles.
-    // 将挂起的周期添加到指令周期中。
-    self.insn_cycles += self.pending.cycles;
-    // Add the pending cycles to the user cycles.
-    // 将挂起的周期添加到用户周期中。
-    self.cycles.user += self.pending.cycles;
-    // Reset the pending cycles to zero.
-    // 将挂起的周期重置为零。
-    self.pending.cycles = 0;
-    // Clear all pending events.
-    // 清除所有挂起的事件。
-    self.pending.events.clear();
-    // If there is a pending syscall, push it to the syscalls vector.
-    // 如果有挂起的系统调用，将其推送到系统调用向量中。
-    if let Some(syscall) = self.pending.syscall.take() {
-        self.syscalls.push(syscall);
-    }
-    // Take the pending output digest and set it as the current output digest.
-    // 获取挂起的输出摘要并将其设置为当前输出摘要。
-    self.output_digest = self.pending.output_digest.take();
-    // Take the pending exit code and set it as the current exit code.
-    // 获取挂起的退出代码并将其设置为当前退出代码。
-    self.exit_code = self.pending.exit_code.take();
-    // Commit the current step in the pager.
-    // 提交分页器中的当前步骤。
-    self.pager.commit_step();
+        // Update the program counter to the pending program counter.
+        // 将程序计数器更新为挂起的程序计数器。
+        self.pc = self.pending.pc;
+        // Add the pending cycles to the instruction cycles.
+        // 将挂起的周期添加到指令周期中。
+        self.insn_cycles += self.pending.cycles;
+        // Add the pending cycles to the user cycles.
+        // 将挂起的周期添加到用户周期中。
+        self.cycles.user += self.pending.cycles;
+        // Reset the pending cycles to zero.
+        // 将挂起的周期重置为零。
+        self.pending.cycles = 0;
+        // Clear all pending events.
+        // 清除所有挂起的事件。
+        self.pending.events.clear();
+        // If there is a pending syscall, push it to the syscalls vector.
+        // 如果有挂起的系统调用，将其推送到系统调用向量中。
+        if let Some(syscall) = self.pending.syscall.take() {
+            self.syscalls.push(syscall);
+        }
+        // Take the pending output digest and set it as the current output digest.
+        // 获取挂起的输出摘要并将其设置为当前输出摘要。
+        self.output_digest = self.pending.output_digest.take();
+        // Take the pending exit code and set it as the current exit code.
+        // 获取挂起的退出代码并将其设置为当前退出代码。
+        self.exit_code = self.pending.exit_code.take();
+        // Commit the current step in the pager.
+        // 提交分页器中的当前步骤。
+        self.pager.commit_step();
 
-    Ok(())
-}
+        Ok(())
+    }
 
     // Resets the executor state to its initial state.
     fn reset(&mut self) {

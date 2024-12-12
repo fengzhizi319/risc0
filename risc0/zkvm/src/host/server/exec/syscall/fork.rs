@@ -56,7 +56,11 @@ impl Syscall for SysFork {
 }
 
 struct Page(Vec<u8>);
-
+/*
+ChildExecutor 结构体的主要作用是模拟子进程的执行环境。它负责管理子进程的程序计数器（pc）、寄存器（registers）、
+页面表（page_table）和页面缓存（page_cache），并处理系统调用（syscall_table）和退出标志（exit）。
+通过实现 EmuContext 和 SyscallContext 接口，ChildExecutor 可以执行指令、处理系统调用和管理内存操作。
+ */
 struct ChildExecutor<'a, 'b> {
     ctx: &'b mut dyn SyscallContext<'a>,
     pc: ByteAddr,
