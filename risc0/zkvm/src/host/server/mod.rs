@@ -14,7 +14,8 @@
 
 pub(crate) mod exec;
 #[cfg(feature = "prove")]
-pub(crate) mod prove;
+/// public prove
+pub mod prove;
 pub(crate) mod session;
 #[cfg(test)]
 mod testutils;

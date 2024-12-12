@@ -74,7 +74,8 @@ extern crate alloc;
 
 pub mod guest;
 #[cfg(not(target_os = "zkvm"))]
-mod host;
+/// zkVM host API
+pub mod host;
 mod receipt;
 mod receipt_claim;
 pub mod serde;
@@ -106,7 +107,7 @@ pub use {
         },
         server::{
             exec::executor::ExecutorImpl,
-            prove::{get_prover_server, HalPair, ProverServer},
+            prove::{get_local_prover, get_prover_server, HalPair, ProverServer},
             session::{
                 FileSegmentRef, NullSegmentRef, Segment, SegmentRef, Session, SessionEvents,
                 SimpleSegmentRef,

@@ -229,6 +229,10 @@ impl Session {
     }
 }
 
+pub fn get_local_prover() -> Result<Rc<dyn ProverServer>> {
+    get_prover_server(&ProverOpts::default())
+}
+
 /// Select a [ProverServer] based on the specified [ProverOpts] and currently
 /// compiled features.
 pub fn get_prover_server(opts: &ProverOpts) -> Result<Rc<dyn ProverServer>> {
