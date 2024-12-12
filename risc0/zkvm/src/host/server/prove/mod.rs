@@ -55,11 +55,15 @@ pub trait ProverServer {
         ctx: &VerifierContext,
         elf: &[u8],
     ) -> Result<ProveInfo> {
+        // 从 ELF 文件和执行环境构造一个新的 ExecutorImpl 实例
         let mut exec = ExecutorImpl::from_elf(env, elf)?;
+
+        // 运行执行器以获取包含执行结果的 Session
         let session = exec.run()?;
+
+        // 使用提供的验证上下文对 Session 进行证明，并返回 ProveInfo
         self.prove_session(ctx, &session)
     }
-
     /// Prove the specified [Session].
     fn prove_session(&self, ctx: &VerifierContext, session: &Session) -> Result<ProveInfo>;
 
@@ -102,7 +106,7 @@ pub trait ProverServer {
         &self,
         receipt: &CompositeReceipt,
     ) -> Result<SuccinctReceipt<ReceiptClaim>> {
-        // Compress all receipts in the top-level session into one succinct receipt for the session.
+        // 将顶层会话中的所有收据压缩成一个简洁的收据
         let continuation_receipt = receipt
             .segments
             .iter()
@@ -112,42 +116,54 @@ pub trait ProverServer {
                  right: &SegmentReceipt|
                  -> Result<_> {
                     Ok(Some(match left {
+                        // 如果左侧已经有收据，则将其与右侧的收据合并
                         Some(left) => self.join(&left, &self.lift(right)?)?,
+                        // 否则，将右侧的收据提升为简洁收据
                         None => self.lift(right)?,
                     }))
                 },
             )?
             .ok_or(anyhow!(
-                "malformed composite receipt has no continuation segment receipts"
-            ))?;
+            "malformed composite receipt has no continuation segment receipts"
+        ))?;
 
-        // Compress assumptions and resolve them to get the final succinct receipt.
+        // 压缩假设并解析它们以获得最终的简洁收据
         receipt.assumption_receipts.iter().try_fold(
             continuation_receipt,
             |conditional: SuccinctReceipt<ReceiptClaim>, assumption: &InnerAssumptionReceipt| match assumption {
+                // 如果假设是简洁收据，则直接解析
                 InnerAssumptionReceipt::Succinct(assumption) => self.resolve(&conditional, assumption),
+                // 如果假设是复合收据，则递归压缩并解析
                 InnerAssumptionReceipt::Composite(assumption) => {
                     self.resolve(&conditional, &self.composite_to_succinct(assumption)?.into_unknown())
                 }
+                // 不支持假收据的压缩
                 InnerAssumptionReceipt::Fake(_) => bail!(
-                    "compressing composite receipts with fake receipt assumptions is not supported"
-                ),
+                "compressing composite receipts with fake receipt assumptions is not supported"
+            ),
+                // 不支持 Groth16 收据的压缩
                 InnerAssumptionReceipt::Groth16(_) => bail!(
-                    "compressing composite receipts with Groth16 receipt assumptions is not supported"
-                )
+                "compressing composite receipts with Groth16 receipt assumptions is not supported"
+            )
             },
         )
     }
 
-    /// Compress a [SuccinctReceipt] into a [Groth16Receipt].
+    /// 将 [SuccinctReceipt] 压缩成 [Groth16Receipt]。
     fn succinct_to_groth16(
         &self,
         receipt: &SuccinctReceipt<ReceiptClaim>,
     ) -> Result<Groth16Receipt<ReceiptClaim>> {
+        // 使用 P254 哈希函数将收据转换为身份收据
         let ident_receipt = self.identity_p254(receipt).unwrap();
+
+        // 获取身份收据的密封字节
         let seal_bytes = ident_receipt.get_seal_bytes();
 
+        // 使用 STARK 到 SNARK 的转换函数将密封字节转换为密封
         let seal = stark_to_snark(&seal_bytes)?.to_vec();
+
+        // 返回 Groth16 收据，其中包含密封、声明和验证参数
         Ok(Groth16Receipt {
             seal,
             claim: receipt.claim.clone(),
@@ -155,15 +171,17 @@ pub trait ProverServer {
         })
     }
 
-    /// Compress a receipt into one with a smaller representation.
+    /// 将收据压缩成更小的表示形式。
     ///
-    /// The requested target representation is determined by the [ReceiptKind] specified on the
-    /// provided [ProverOpts]. If the receipt is already at least as compressed as the requested
-    /// kind, this is a no-op.
+    /// 请求的目标表示形式由提供的 [ProverOpts] 中指定的 [ReceiptKind] 决定。
+    /// 如果收据已经至少压缩到请求的类型，则此操作无效。
     fn compress(&self, opts: &ProverOpts, receipt: &Receipt) -> Result<Receipt> {
         match &receipt.inner {
+            // 如果收据是 Composite 类型
             InnerReceipt::Composite(inner) => match opts.receipt_kind {
+                // 如果请求的类型是 Composite，则直接返回原始收据
                 ReceiptKind::Composite => Ok(receipt.clone()),
+                // 如果请求的类型是 Succinct，则将 Composite 收据压缩成 Succinct 收据
                 ReceiptKind::Succinct => {
                     let succinct_receipt = self.composite_to_succinct(inner)?;
                     Ok(Receipt::new(
@@ -171,6 +189,7 @@ pub trait ProverServer {
                         receipt.journal.bytes.clone(),
                     ))
                 }
+                // 如果请求的类型是 Groth16，则先将 Composite 收据压缩成 Succinct 收据，再压缩成 Groth16 收据
                 ReceiptKind::Groth16 => {
                     let succinct_receipt = self.composite_to_succinct(inner)?;
                     let groth16_receipt = self.succinct_to_groth16(&succinct_receipt)?;
@@ -180,8 +199,11 @@ pub trait ProverServer {
                     ))
                 }
             },
+            // 如果收据是 Succinct 类型
             InnerReceipt::Succinct(inner) => match opts.receipt_kind {
+                // 如果请求的类型是 Composite 或 Succinct，则直接返回原始收据
                 ReceiptKind::Composite | ReceiptKind::Succinct => Ok(receipt.clone()),
+                // 如果请求的类型是 Groth16，则将 Succinct 收据压缩成 Groth16 收据
                 ReceiptKind::Groth16 => {
                     let groth16_receipt = self.succinct_to_groth16(inner)?;
                     Ok(Receipt::new(
@@ -190,16 +212,20 @@ pub trait ProverServer {
                     ))
                 }
             },
+            // 如果收据是 Groth16 类型
             InnerReceipt::Groth16(_) => match opts.receipt_kind {
+                // 如果请求的类型是 Composite、Succinct 或 Groth16，则直接返回原始收据
                 ReceiptKind::Composite | ReceiptKind::Succinct | ReceiptKind::Groth16 => {
                     Ok(receipt.clone())
                 }
             },
+            // 如果收据是 Fake 类型
             InnerReceipt::Fake(_) => {
+                // 确保开发模式已启用，否则返回错误
                 ensure!(
-                    is_dev_mode(),
-                    "dev mode must be enabled to compress fake receipts"
-                );
+                is_dev_mode(),
+                "dev mode must be enabled to compress fake receipts"
+            );
                 Ok(receipt.clone())
             }
         }
