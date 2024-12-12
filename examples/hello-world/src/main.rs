@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use hello_world::multiply;
+use hello_world::{multiply, multiply_local};
 use hello_world_methods::MULTIPLY_ID;
 
 fn main() {
@@ -24,7 +24,7 @@ fn main() {
 
     // Pick two numbers
     let start = Instant::now();
-    let (receipt, _) = multiply(17, 23);
+    let (receipt, _) = multiply_local(17, 23);
     let duration = start.elapsed();
     println!("Time taken for multiply: {:?}", duration);
 
@@ -37,4 +37,5 @@ fn main() {
     );
     let duration = start.elapsed();
     println!("Time taken for verify: {:?}", duration);
+    let (_receipt, _) = multiply_local(17, 23);
 }
