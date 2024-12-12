@@ -229,6 +229,7 @@ impl Session {
     }
 }
 
+/// Get a local prover.
 pub fn get_local_prover() -> Result<Rc<dyn ProverServer>> {
     get_prover_server(&ProverOpts::default())
 }
