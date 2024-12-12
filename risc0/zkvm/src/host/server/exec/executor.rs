@@ -125,6 +125,7 @@ impl<'a> ExecutorImpl<'a> {
         self.run_with_callback(|segment| Ok(Box::new(FileSegmentRef::new(&segment, &path)?)))
     }
 
+
     /// Run the executor until [crate::ExitCode::Halted] or
     /// [crate::ExitCode::Paused] is reached, producing a [Session] as a result.
     pub fn run_with_callback<F>(&mut self, mut callback: F) -> Result<Session>
@@ -308,7 +309,13 @@ impl<'a> NewSyscall for ExecutorImpl<'a> {
             .syscall(syscall, &mut ctx, into_guest)
     }
 }
-
+/*
+Journal 结构体的主要功能是捕获执行过程中产生的日志输出，并将其存储在一个可访问的缓冲区中。它实现了 Write trait，因此可以像标准输出流一样使用。具体功能包括：
+缓冲区：使用 Rc<RefCell<Vec<u8>>> 来存储日志数据，以便在多个地方共享和修改。
+写入日志：实现 write 方法，将日志数据写入缓冲区。
+刷新日志：实现 flush 方法，刷新缓冲区中的日志数据。
+这些功能使得 Journal 可以在执行过程中捕获和存储日志输出，方便后续访问和处理。
+ */
 // Capture the journal output in a buffer that we can access afterwards.
 #[derive(Clone, Default)]
 struct Journal {
