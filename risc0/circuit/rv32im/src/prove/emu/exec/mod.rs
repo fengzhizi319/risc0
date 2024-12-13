@@ -175,10 +175,10 @@ pub struct Executor<'a, 'b, S: Syscall> {
     /// 指令周期计数
     /// Instruction cycle count
     insn_cycles: usize,
-   /*
-   寄存器的值保存在 PagedMemory 结构中。具体来说，寄存器的值通过 SYSTEM_START 偏移量存储在 PagedMemory 的内存中。
-   load_register 和 store_register 方法用于从 PagedMemory 中加载和存储寄存器的值。
-    */
+    /*
+    寄存器的值保存在 PagedMemory 结构中。具体来说，寄存器的值通过 SYSTEM_START 偏移量存储在 PagedMemory 的内存中。
+    load_register 和 store_register 方法用于从 PagedMemory 中加载和存储寄存器的值。
+     */
     /// Paged memory manager
     pager: PagedMemory,
     /// 退出代码
@@ -324,7 +324,7 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             }
 
             // Execute a single step in the emulator
-            // 在模拟器中执行单步操作
+            // 在模拟器中执行单步操作，会更新pc指针等内部状态到pending中，advance运算会从pending中取出状态更新到当前状态
             emu.step(self)?;
 
             // Calculate the total cycles used in the current segment
@@ -335,12 +335,16 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
                 // 如果在段限制内，则推进到下一条指令
                 self.advance()?;
             } else if self.insn_cycles == 0 {
+                /*
+                self.insn_cycles == 0 表示当前指令周期计数为零。这意味着在当前段中还没有执行任何指令。
+                如果在这种情况下段限制太小，程序会抛出错误，因为即使是执行一条指令所需的周期数也超过了段限制。
+                 */
                 // Bail if the segment limit is too small for the current instruction
                 // 如果段限制对于当前指令来说太小，则抛出错误
                 bail!(
-            "segment limit ({segment_limit}) too small for instruction at pc: {:?}",
-            self.pc
-            );
+                "segment limit ({segment_limit}) too small for instruction at pc: {:?}",
+                self.pc
+                );
             } else {
                 // Undo the last pager operation and split the segment
                 // 撤销最后的分页操作并分割段
@@ -361,7 +365,7 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
                 self.insn_cycles,
                 self.pager.cycles,
                 self.pending
-            );
+                );
 
                 // Commit the current state and create a new segment
                 // 提交当前状态并创建新段

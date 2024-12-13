@@ -155,7 +155,7 @@ impl PagedMemory {
 
         Ok(())
     }
-
+    ///commit 函数的主要功能是提交当前的内存状态，并返回执行前后的系统状态和内存镜像
     pub fn commit(&mut self, pc: ByteAddr) -> (SystemState, MemoryImage, SystemState) {
         let pre_state = self.image.get_system_state();
         let info = &self.image.info;
