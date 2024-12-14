@@ -204,7 +204,7 @@ impl<'a> ExecutorImpl<'a> {
             refs.push(segment_ref); // 将处理后的段引用存储在 refs 向量中
             Ok(())
         })?;
-        println!("refs: {:?}", refs);
+        //println!("refs: {:?}", refs);
         // Calculate the elapsed time for execution
         let elapsed = start_time.elapsed();
 
