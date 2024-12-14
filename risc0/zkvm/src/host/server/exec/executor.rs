@@ -121,7 +121,7 @@ impl<'a> ExecutorImpl<'a> {
 
         // 获取 segment_path
         let path = self.env.segment_path.clone().unwrap();
-
+        //path: "/var/folders/y_/v6fszzsd26n63d3nbbnc6y0h0000gn/T/.tmplScAyW"
         // 运行带有回调的执行器
         self.run_with_callback(|segment| Ok(Box::new(FileSegmentRef::new(&segment, &path)?)))
     }

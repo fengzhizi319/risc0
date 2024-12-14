@@ -48,7 +48,7 @@ pub struct ExecutorEnvBuilder<'a> {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SegmentPath {
     TempDir(Arc<TempDir>),
     Path(PathBuf),

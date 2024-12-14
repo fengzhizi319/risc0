@@ -72,61 +72,81 @@ pub struct SegmentReceipt {
 impl SegmentReceipt {
     /// Verify the integrity of this receipt, ensuring the claim is attested
     /// to by the seal.
+    /*
+    1. 获取验证参数：从验证上下文中获取段的验证参数。
+    2. 检查证明系统和电路信息：确保证明系统和电路信息与当前实现匹配。
+    3. 调试信息：记录调试信息。
+    4. 检查控制 ID：定义一个闭包函数，用于检查控制 ID 是否在验证参数中。
+    5. 获取哈希套件：从上下文中获取哈希套件。
+    6. 验证密封：使用证明系统和哈希套件验证密封。
+    7. 解码收据声明：从密封中解码收据声明。
+    8. 检查声明一致性：确保解码的声明与结构中的声明一致。
+    9. 返回结果：如果所有检查通过，则返回 Ok(())，否则返回相应的错误。
+     */
     pub fn verify_integrity_with_context(
-        &self,
-        ctx: &VerifierContext,
-    ) -> Result<(), VerificationError> {
-        let params = ctx
-            .segment_verifier_parameters
-            .as_ref()
-            .ok_or(VerificationError::VerifierParametersMissing)?;
+    &self,
+    ctx: &VerifierContext,
+) -> Result<(), VerificationError> {
+    // 获取验证参数
+    let params = ctx
+        .segment_verifier_parameters
+        .as_ref()
+        .ok_or(VerificationError::VerifierParametersMissing)?;
 
-        // Check that the proof system and circuit info strings match what is implemented by this
-        // function. Info strings are used a version identifiers, and this verify implementation
-        // supports exactly one proof systema and circuit version at a time.
-        if params.proof_system_info != PROOF_SYSTEM_INFO {
-            return Err(VerificationError::ProofSystemInfoMismatch {
-                expected: PROOF_SYSTEM_INFO,
-                received: params.proof_system_info,
-            });
-        }
-        if params.circuit_info != CircuitImpl::CIRCUIT_INFO {
-            return Err(VerificationError::CircuitInfoMismatch {
-                expected: CircuitImpl::CIRCUIT_INFO,
-                received: params.circuit_info,
-            });
-        }
-
-        tracing::debug!("SegmentReceipt::verify_integrity_with_context");
-        let check_code = |_, control_id: &Digest| -> Result<(), VerificationError> {
-            params.control_ids.contains(control_id).then_some(()).ok_or(
-                VerificationError::ControlVerificationError {
-                    control_id: *control_id,
-                },
-            )
-        };
-        let suite = ctx
-            .suites
-            .get(&self.hashfn)
-            .ok_or(VerificationError::InvalidHashSuite)?;
-        risc0_zkp::verify::verify(&CIRCUIT, suite, &self.seal, check_code)?;
-
-        // Receipt is consistent with the claim encoded on the seal. Now check against the
-        // claim on the struct.
-        let decoded_claim = decode_receipt_claim_from_seal(&self.seal)?;
-        if decoded_claim.digest::<sha::Impl>() != self.claim.digest::<sha::Impl>() {
-            tracing::debug!(
-                "decoded segment receipt claim does not match claim field:\ndecoded: {:#?},\nexpected: {:#?}",
-                decoded_claim,
-                self.claim,
-            );
-            return Err(VerificationError::ClaimDigestMismatch {
-                expected: self.claim.digest::<sha::Impl>(),
-                received: decoded_claim.digest::<sha::Impl>(),
-            });
-        }
-        Ok(())
+    // 检查证明系统和电路信息是否匹配
+    if params.proof_system_info != PROOF_SYSTEM_INFO {
+        return Err(VerificationError::ProofSystemInfoMismatch {
+            expected: PROOF_SYSTEM_INFO,
+            received: params.proof_system_info,
+        });
     }
+    if params.circuit_info != CircuitImpl::CIRCUIT_INFO {
+        return Err(VerificationError::CircuitInfoMismatch {
+            expected: CircuitImpl::CIRCUIT_INFO,
+            received: params.circuit_info,
+        });
+    }
+
+    // 记录调试信息
+    tracing::debug!("SegmentReceipt::verify_integrity_with_context");
+
+    // 定义一个闭包函数，用于检查控制 ID 是否在验证参数中
+    let check_code = |_, control_id: &Digest| -> Result<(), VerificationError> {
+        params.control_ids.contains(control_id).then_some(()).ok_or(
+            VerificationError::ControlVerificationError {
+                control_id: *control_id,
+            },
+        )
+    };
+
+    // 获取哈希套件
+    let suite = ctx
+        .suites
+        .get(&self.hashfn)
+        .ok_or(VerificationError::InvalidHashSuite)?;
+
+    // 使用证明系统和哈希套件验证密封
+    risc0_zkp::verify::verify(&CIRCUIT, suite, &self.seal, check_code)?;
+
+    // 从密封中解码收据声明
+    let decoded_claim = decode_receipt_claim_from_seal(&self.seal)?;
+
+    // 确保解码的声明与结构中的声明一致
+    if decoded_claim.digest::<sha::Impl>() != self.claim.digest::<sha::Impl>() {
+        tracing::debug!(
+            "decoded segment receipt claim does not match claim field:\ndecoded: {:#?},\nexpected: {:#?}",
+            decoded_claim,
+            self.claim,
+        );
+        return Err(VerificationError::ClaimDigestMismatch {
+            expected: self.claim.digest::<sha::Impl>(),
+            received: decoded_claim.digest::<sha::Impl>(),
+        });
+    }
+
+    // 返回结果
+    Ok(())
+}
 
     /// Return the seal for this receipt, as a vector of bytes.
     pub fn get_seal_bytes(&self) -> Vec<u8> {

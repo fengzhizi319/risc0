@@ -55,6 +55,8 @@ impl<F: Field> WriteIOP<F> {
 
     /// Called by the prover to commit to some hash (usually data written
     /// earlier or a Merkle root).
+    /// commit 函数的主要作用是将某个哈希值（通常是之前写入的数据或 Merkle 根）提交到
+    /// 随机数生成器（RNG）中进行混合。通过这种方式，commit 函数确保了随机数生成器的状态包含了提交的哈希值，从而在后续生成随机数时保证其加密安全性和不可预测性。
     pub fn commit(&mut self, message: &Digest) {
         self.rng.mix(message);
     }

@@ -290,7 +290,7 @@ impl<'a, 'b, S: Syscall> Executor<'a, 'b, S> {
             INIT_CYCLES + MIN_HALT_CYCLES + PAGE_FINI_CYCLES + FINI_CYCLES + ZK_CYCLES;
         // Calculate the segment limit by subtracting reserved cycles from the total cycles
         // 通过从总周期中减去保留周期来计算段限制
-        let segment_limit = (1 << segment_po2) - RESERVED_CYCLES;
+        let segment_limit = (1 << segment_po2) - RESERVED_CYCLES;//1044982
 
         // Reset the executor state
         // 重置执行器状态

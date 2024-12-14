@@ -51,29 +51,47 @@ impl ProverImpl {
 }
 
 impl ProverServer for ProverImpl {
+    /*
+    1记录调试信息：使用 tracing::debug! 记录会话的退出代码、日志和段的数量。
+    2处理每个段：遍历会话中的每个段，调用 prove_segment 方法进行证明，并在证明前后调用钩子函数。
+    3处理假设：将会话中的假设和假设收据分离，并将输出合并到最后一个段中。
+    4获取验证参数：从验证上下文中获取复合验证参数。
+    5处理 ZKR 收据：遍历会话中的待处理 ZKR 请求，生成收据并存储在哈希映射中。
+    6处理假设收据：将假设收据转换为内部假设收据。
+    7创建复合收据：使用段、假设收据和验证参数创建复合收据。
+    8验证收据完整性：验证复合收据的完整性，并检查声明是否匹配。
+    9压缩收据：根据选项中的收据类型，将复合收据压缩为所需类型。
+    10返回证明信息：返回包含收据和统计信息的 ProveInfo。
+     */
     fn prove_session(&self, ctx: &VerifierContext, session: &Session) -> Result<ProveInfo> {
+        // 记录调试信息
         tracing::debug!(
-            "prove_session: exit_code = {:?}, journal = {:?}, segments: {}",
-            session.exit_code,
-            session.journal.as_ref().map(hex::encode),
-            session.segments.len()
+        "prove_session: exit_code = {:?}, journal = {:?}, segments: {}",
+        session.exit_code,
+        session.journal.as_ref().map(hex::encode),
+        session.segments.len()
         );
+
+        // 处理每个段
         let mut segments = Vec::new();
         for segment_ref in session.segments.iter() {
             let segment = segment_ref.resolve()?;
             for hook in &session.hooks {
                 hook.on_pre_prove_segment(&segment);
             }
-            segments.push(self.prove_segment(ctx, &segment)?);
+            let  prove_segment0=self.prove_segment(ctx, &segment)?;
+            segments.push(prove_segment0);
+            //segments.push(self.prove_segment(ctx, &segment)?);
             for hook in &session.hooks {
                 hook.on_post_prove_segment(&segment);
             }
         }
 
+        // 处理假设
         let (assumptions, session_assumption_receipts): (Vec<_>, Vec<_>) =
             session.assumptions.iter().cloned().unzip();
 
-        // Merge the output, including journal digest and assumptions, into the last segment.
+        // 将输出合并到最后一个段中
         segments
             .last_mut()
             .ok_or(anyhow!("session is empty"))?
@@ -91,13 +109,15 @@ impl ProverServer for ProverImpl {
             )
             .context("failed to merge output into final segment claim")?;
 
+        // 获取验证参数
         let verifier_parameters = ctx
             .composite_verifier_parameters()
             .ok_or(anyhow!(
-                "composite receipt verifier parameters missing from context"
-            ))?
+            "composite receipt verifier parameters missing from context"
+        ))?
             .digest();
 
+        // 处理 ZKR 收据
         let mut zkr_receipts = HashMap::new();
         for proof_request in session.pending_zkrs.iter() {
             let receipt = prove_zkr(&proof_request.control_id, &proof_request.input)?;
@@ -108,7 +128,7 @@ impl ProverServer for ProverImpl {
             zkr_receipts.insert(assumption, receipt);
         }
 
-        // TODO: add test case for when a single session refers to the same assumption multiple times
+        // 处理假设收据
         let inner_assumption_receipts: Vec<_> = session_assumption_receipts
             .into_iter()
             .map(|assumption_receipt| match assumption_receipt {
@@ -127,6 +147,7 @@ impl ProverServer for ProverImpl {
             .map(|inner| AssumptionReceipt::Proven(inner.clone()))
             .collect();
 
+        // 创建复合收据
         let composite_receipt = CompositeReceipt {
             segments,
             assumption_receipts: inner_assumption_receipts,
@@ -135,7 +156,7 @@ impl ProverServer for ProverImpl {
 
         let session_claim = session.claim_with_assumptions(assumption_receipts.iter())?;
 
-        // Verify the receipt to catch if something is broken in the proving process.
+        // 验证收据完整性
         composite_receipt.verify_integrity_with_context(ctx)?;
         check_claims(
             &session_claim,
@@ -143,7 +164,7 @@ impl ProverServer for ProverImpl {
             MaybePruned::Value(composite_receipt.claim()?),
         )?;
 
-        // Compress the receipt to the requested level.
+        // 压缩收据
         let receipt = match self.opts.receipt_kind {
             ReceiptKind::Composite => Receipt::new(
                 InnerReceipt::Composite(composite_receipt),
@@ -166,36 +187,52 @@ impl ProverServer for ProverImpl {
             }
         };
 
-        // Verify the receipt to catch if something is broken in the proving process.
+        // 验证收据完整性
         receipt.verify_integrity_with_context(ctx)?;
         check_claims(&session_claim, "receipt", receipt.claim()?)?;
 
+        // 返回证明信息
         Ok(ProveInfo {
             receipt,
             stats: session.stats(),
         })
     }
+    /*
+    1. 检查段的 po2：确保段的 po2 不超过最大允许值。
+    2. 生成段的密封：调用 segment_prover.prove_segment 方法生成段的密封。
+    3. 解码收据声明：从密封中解码收据声明，并设置段的输出。
+    4. 获取验证参数：从验证上下文中获取段的验证参数。
+    5. 创建段收据：使用密封、索引、哈希函数、声明和验证参数创建段收据。
+    6. 验证收据完整性：验证段收据的完整性。
+    7. 返回段收据：返回段收据
+     */
 
     fn prove_segment(&self, ctx: &VerifierContext, segment: &Segment) -> Result<SegmentReceipt> {
+        // 确保段的 po2 不超过最大允许值
         ensure!(
-            segment.po2() <= self.opts.max_segment_po2,
-            "segment po2 exceeds max on ProverOpts: {} > {}",
-            segment.po2(),
-            self.opts.max_segment_po2
+        segment.po2() <= self.opts.max_segment_po2,
+        "segment po2 exceeds max on ProverOpts: {} > {}",
+        segment.po2(),
+        self.opts.max_segment_po2
         );
 
+        // 调用 segment_prover.prove_segment 方法生成段的密封
         let seal = self.segment_prover.prove_segment(&segment.inner)?;
 
+        // 从密封中解码收据声明，并设置段的输出
         let mut claim = decode_receipt_claim_from_seal(&seal)?;
         claim.output = segment.output.clone().into();
 
+        // 从验证上下文中获取段的验证参数
         let verifier_parameters = ctx
             .segment_verifier_parameters
             .as_ref()
             .ok_or(anyhow!(
-                "segment receipt verifier parameters missing from context"
-            ))?
+            "segment receipt verifier parameters missing from context"
+        ))?
             .digest();
+
+        // 使用密封、索引、哈希函数、声明和验证参数创建段收据
         let receipt = SegmentReceipt {
             seal,
             index: segment.index,
@@ -203,8 +240,11 @@ impl ProverServer for ProverImpl {
             claim,
             verifier_parameters,
         };
+
+        // 验证段收据的完整性
         receipt.verify_integrity_with_context(ctx)?;
 
+        // 返回段收据
         Ok(receipt)
     }
 

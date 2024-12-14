@@ -633,7 +633,7 @@ impl Emulator {
             InsnCategory::Store => self.step_store(ctx, insn.kind, &decoded)?,
             InsnCategory::System => self.step_system(ctx, insn.kind, &decoded)?,
             InsnCategory::Invalid => ctx.trap(TrapCause::IllegalInstruction(word))?,
-        } {
+        } {//如果指令正常结束，调用 ctx.on_normal_end 函数
             ctx.on_normal_end(&insn, &decoded);
         };
 

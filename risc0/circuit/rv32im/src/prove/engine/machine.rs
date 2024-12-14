@@ -114,8 +114,21 @@ impl TopMux {
 }
 
 impl<'a> MachineContext<'a> {
+    /*
+    new 函数的主要功能是初始化 MachineContext 实例。主要步骤如下：
+    创建范围：创建一个范围（scope）以记录准备跟踪的过程。
+    处理周期数据：遍历 trace 中的周期数据，将其转换为 RawPreflightCycle 格式，并存储在 _raw_cycles 向量中。
+    处理事务数据：遍历 trace 中的事务数据，将其转换为 RawMemoryTransaction 格式，并存储在 _raw_txns 向量中。
+    处理额外数据：将 trace 中的额外数据复制到 _raw_extras 向量中。
+    检查跟踪级别：根据当前的跟踪级别设置 is_trace 标志。
+    创建原始跟踪：创建 RawPreflightTrace 实例，并将前面处理的数据指针传递给它。
+    返回实例：返回包含 trace、raw_trace、_raw_cycles、_raw_txns 和 _raw_extras 的 MachineContext 实例。
+     */
     pub fn new(trace: &'a PreflightTrace) -> Self {
+        // 创建一个范围（scope）以记录准备跟踪的过程
         scope!("prepare_trace");
+
+        // 处理周期数据，将其转换为 RawPreflightCycle 格式
         let _raw_cycles: Vec<_> = trace
             .pre
             .cycles
@@ -144,6 +157,7 @@ impl<'a> MachineContext<'a> {
             }))
             .collect();
 
+        // 处理事务数据，将其转换为 RawMemoryTransaction 格式
         let _raw_txns: Vec<_> = trace
             .pre
             .txns
@@ -160,6 +174,7 @@ impl<'a> MachineContext<'a> {
             }))
             .collect();
 
+        // 处理额外数据，将其复制到 _raw_extras 向量中
         let _raw_extras: Vec<_> = trace
             .pre
             .extras
@@ -168,6 +183,7 @@ impl<'a> MachineContext<'a> {
             .copied()
             .collect();
 
+        // 检查当前的跟踪级别，设置 is_trace 标志
         let is_trace = match tracing::level_filters::LevelFilter::current()
             .eq(&tracing::level_filters::LevelFilter::TRACE)
         {
@@ -175,6 +191,7 @@ impl<'a> MachineContext<'a> {
             false => 0,
         };
 
+        // 创建 RawPreflightTrace 实例，并将前面处理的数据指针传递给它
         let raw_trace = Box::new(RawPreflightTrace {
             cycles: _raw_cycles.as_ptr(),
             txns: _raw_txns.as_ptr(),
@@ -185,6 +202,7 @@ impl<'a> MachineContext<'a> {
             is_trace,
         });
 
+        // 返回包含 trace、raw_trace、_raw_cycles、_raw_txns 和 _raw_extras 的 MachineContext 实例
         Self {
             trace,
             raw_trace,
@@ -198,6 +216,7 @@ impl<'a> MachineContext<'a> {
         self.get_cycle(cycle).back.is_some()
     }
 
+    /// 将执行回退数据注入到数据缓冲区中
     pub fn inject_exec_backs<'b>(
         &self,
         steps: usize,
@@ -205,14 +224,21 @@ impl<'a> MachineContext<'a> {
         offsets: &'b mut Vec<u32>,
         values: &'b mut Vec<BabyBearElem>,
     ) {
+        // 获取当前周期的数据
         let cur_cycle = self.get_cycle(cycle);
+        // 如果当前周期有回退数据
         if let Some(back) = &cur_cycle.back {
+            // 创建一个 Injector 实例
             let mut injector = Injector::new(steps, cycle, offsets, values);
+            // 根据回退数据的类型，设置相应的寄存器值
             match back {
                 Back::Null => (),
                 Back::Body { pc } => {
+                    // 设置程序计数器（PC）
                     injector.set_pc(*pc);
+                    // 设置用户模式
                     injector.set_user_mode();
+                    // 设置下一个主要操作
                     injector.set_next_major(Major::MuxSize);
                 }
                 Back::Halt {
@@ -221,9 +247,13 @@ impl<'a> MachineContext<'a> {
                     user_exit_code,
                     write_addr,
                 } => {
+                    // 设置程序计数器（PC）
                     injector.set_pc(*pc);
+                    // 设置用户模式
                     injector.set_user_mode();
+                    // 设置停止状态
                     injector.set_halt(*sys_exit_code, *user_exit_code, *write_addr);
+                    // 设置下一个主要操作为停止
                     injector.set_next_major(Major::Halt);
                 }
             }

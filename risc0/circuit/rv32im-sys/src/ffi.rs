@@ -43,6 +43,8 @@ pub struct RawPreflightCycle {
 }
 
 #[repr(C)]
+///当需要将数据传递给外部 C 函数或硬件加速库时，将 PreflightTrace 数据转换为 RawPreflightTrace 格式
+/// 以原始、低级格式表示PreflightTrace，适用于 FFI（外部函数接口）和与 C 代码或硬件加速库的交互
 pub struct RawPreflightTrace {
     pub cycles: *const RawPreflightCycle,
     pub txns: *const RawMemoryTransaction,

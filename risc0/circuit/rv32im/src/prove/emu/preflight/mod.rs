@@ -102,11 +102,23 @@ pub struct PreflightStage {
 
 #[derive(Clone, Default)]
 pub struct PreflightTrace {
+    ///记录预处理阶段的执行过程，包括初始化、设置字节、加载 RAM 等操作
     pub pre: PreflightStage,
+    ///记录主体阶段的执行过程，包括指令执行、系统调用处理等操作
     pub body: PreflightStage,
+    ///存储累积的预处理数据，用于检查执行过程的并行安全性等
     pub accum: AccumPreflight,
 }
-
+/*
+Preflight 结构体的主要作用是模拟和记录证明段的执行过程。它通过仿真执行指令，记录内存事务和执行周期，并在执行过程中处理系统调用和页面错误。Preflight 结构体的主要功能包括：
+1初始化：创建 Preflight 实例并初始化相关状态。
+2预处理步骤：执行预处理步骤，设置初始状态和内存。
+3仿真执行：在循环中执行仿真步骤，直到达到指令周期限制或遇到停止条件。
+4后处理步骤：执行后处理步骤，处理页面错误和系统调用。
+5记录执行过程：记录每个执行周期的状态和内存事务。
+6并行安全检查：检查 TopMux 是否并行安全，并将结果存储在 accum.is_par_safe 中。
+通过这些功能，Preflight 结构体能够模拟和记录证明段的执行过程，为后续的证明生成提供必要的数据和状态信息。
+ */
 struct Preflight {
     steps: usize,
     pager: PagedMemory,
@@ -199,7 +211,7 @@ impl Preflight {
         };
         stage.add_cycle(mux, None);
     }
-
+    ///add_par_cycle 函数能够在仿真执行过程中记录每个cycle的状态和内存事务，为后续的证明生成提供必要的数据和状态信息
     fn add_par_cycle(&mut self, pre: bool, mux: TopMux, back: Back) {
         let stage = if pre {
             &mut self.trace.pre
@@ -227,29 +239,32 @@ impl Preflight {
         stage.add_extra(value);
     }
 
+    ///执行预处理步骤，为仿真执行做好准备
     fn pre_steps(&mut self) {
-        // bytes_init
+        // 初始化字节
         self.add_par_cycle(true, TopMux::BytesInit, Back::Null);
 
-        // bytes_setup+
+        // 设置字节
         for _ in 0..SETUP_CYCLES {
             self.add_cycle(true, TopMux::BytesSetup);
         }
 
-        // ram_init
+        // 初始化 RAM
         self.add_par_cycle(true, TopMux::RamInit, Back::Null);
 
-        // ram_load+
+        // 加载 RAM
         for _ in 0..RAM_LOAD_CYCLES {
             self.add_par_cycle(true, TopMux::RamLoad, Back::Null);
         }
 
+        // 将 SHA 常量存储到分页内存中
         for (i, word) in SHA_K.iter().enumerate() {
             self.pager
                 .image
                 .store_region_in_page((SHA_K_OFFSET + i * WORD_SIZE) as u32, &word.to_le_bytes());
         }
 
+        // 将 SHA 初始化向量存储到分页内存中
         for (i, word) in SHA256_INIT.as_words().iter().enumerate() {
             self.pager.image.store_region_in_page(
                 (SHA_INIT_OFFSET + i * WORD_SIZE) as u32,
@@ -257,13 +272,30 @@ impl Preflight {
             );
         }
 
-        // reset(0)
+        // 重置
         self.add_cycle(true, TopMux::Reset);
         self.add_cycle(true, TopMux::Reset);
+
+        // 将 Merkle 根存储到分页内存中
         let info = &self.pager.image.info;
         let bytes = self.pre_merkle_root.as_bytes();
         self.pager.image.store_region_in_page(info.root_addr, bytes)
     }
+    /*
+    post_steps 函数的主要作用是执行后处理步骤，确保仿真执行的完整性和一致性。具体步骤如下：
+    处理页面错误读取：模拟在主体开始之前发生的页面错误读取。
+    获取退出代码：从 halted 状态中获取系统和用户退出代码。
+    处理页面错误写入：在系统分割或暂停之前模拟页面错误写入。
+    处理系统分割：如果系统退出代码为分割，处理相关页面错误。
+    处理暂停：如果系统退出代码为暂停，加载当前程序计数器的值。
+    记录事务：记录系统调用的相关事务。
+    计算填充周期：计算并添加必要的填充周期，以确保执行周期的完整性。
+    重置周期：执行两次重置操作。
+    完成 RAM 和字节的后处理：添加 RAM 和字节的后处理周期。
+    通过这些步骤，post_steps 函数确保了仿真执行的完整性和一致性，为后续的证明生成提供了必要的数据和状态信息。
+
+     */
+    ///post_steps 函数的主要作用是执行后处理步骤，确保仿真执行的完整性和一致性
 
     fn post_steps(&mut self) -> Result<()> {
         let faults = self.pager.get_faults();
@@ -928,6 +960,7 @@ impl EmuContext for Preflight {
     fn on_insn_decoded(&self, insn: &Instruction, _decoded: &DecodedInstruction) {
         tracing::trace!("{:?}> {:?}", self.pc, insn.kind);
     }
+    ///在指令正常结束时记录执行状态和内存事务，为后续的证明生成提供必要的数据和状态信息
 
     fn on_normal_end(&mut self, insn: &Instruction, _decoded: &DecodedInstruction) {
         match insn.kind {
@@ -995,20 +1028,39 @@ impl EmuContext for Preflight {
 }
 
 impl Segment {
+    /*
+    初始化：创建一个 Preflight 实例和一个 Emulator 实例。
+    预处理步骤：调用 pre_steps 方法执行预处理步骤。
+    仿真执行：在循环中执行仿真步骤，直到达到指令周期限制或遇到停止条件。
+    后处理步骤：调用 post_steps 方法执行后处理步骤。
+    并行安全检查：定义一个函数 is_par_safe，用于检查 TopMux 是否并行安全，并将结果存储在 accum.is_par_safe 中。
+    返回结果：返回 PreflightTrace 结果。
+     */
     pub fn preflight(&self) -> Result<PreflightTrace> {
+        // 创建一个范围（scope）以记录预处理过程
         scope!("preflight");
 
+        // 记录调试信息
         tracing::debug!("preflight: {self:#?}");
+
+        // 创建一个 Preflight 实例
         let mut preflight = Preflight::new(self);
+        // 创建一个 Emulator 实例
         let mut emu = Emulator::new();
 
+        // 执行预处理步骤
         preflight.pre_steps();
+
+        // 在循环中执行仿真步骤，并且记录每个cycle的trace，直到达到指令周期限制或遇到停止条件
         while preflight.trace.body.cycles.len() < self.insn_cycles && preflight.halted.is_none() {
             emu.step(&mut preflight)?;
             preflight.pager.commit_step();
         }
+
+        // 执行后处理步骤
         preflight.post_steps()?;
 
+        // 定义一个函数 is_par_safe，用于检查 TopMux 是否并行安全
         fn is_par_safe(mux: &TopMux) -> u8 {
             if *mux == TopMux::Body(Major::BigInt2, 0) {
                 0
@@ -1017,6 +1069,7 @@ impl Segment {
             }
         }
 
+        // 将并行安全检查结果存储在 accum.is_par_safe 中
         preflight.trace.accum.is_par_safe = preflight
             .trace
             .pre
@@ -1033,6 +1086,7 @@ impl Segment {
             )
             .collect();
 
+        // 返回 PreflightTrace 结果
         Ok(preflight.trace)
     }
 }

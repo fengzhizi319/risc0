@@ -53,22 +53,31 @@ pub trait Buffer<T>: Clone {
 }
 
 pub trait Hal {
+    // 定义关联类型 Field，Elem 和 ExtElem
     type Field: Field<Elem = Self::Elem, ExtElem = Self::ExtElem>;
     type Elem: Elem + RootsOfUnity;
     type ExtElem: ExtElem<SubElem = Self::Elem>;
     type Buffer<T: Clone + Debug + PartialEq>: Buffer<T>;
 
+    // 常量 CHECK_SIZE，用于校验多项式的大小
     const CHECK_SIZE: usize = INV_RATE * Self::ExtElem::EXT_SIZE;
 
+    // 判断是否具有统一内存
     fn has_unified_memory(&self) -> bool;
 
+    // 获取哈希套件
     fn get_hash_suite(&self) -> &HashSuite<Self::Field>;
 
+    // 分配用于存储 Digest 的缓冲区
     fn alloc_digest(&self, name: &'static str, size: usize) -> Self::Buffer<Digest>;
+    // 分配用于存储 Elem 的缓冲区
     fn alloc_elem(&self, name: &'static str, size: usize) -> Self::Buffer<Self::Elem>;
+    // 分配用于存储 ExtElem 的缓冲区
     fn alloc_extelem(&self, name: &'static str, size: usize) -> Self::Buffer<Self::ExtElem>;
+    // 分配用于存储 u32 的缓冲区
     fn alloc_u32(&self, name: &'static str, size: usize) -> Self::Buffer<u32>;
 
+    // 分配并初始化用于存储 Elem 的缓冲区
     fn alloc_elem_init(
         &self,
         name: &'static str,
@@ -82,6 +91,7 @@ pub trait Hal {
         buffer
     }
 
+    // 分配并初始化为零的 ExtElem 缓冲区
     fn alloc_extelem_zeroed(&self, name: &'static str, size: usize) -> Self::Buffer<Self::ExtElem> {
         let buffer = self.alloc_extelem(name, size);
         buffer.view_mut(|slice| {
@@ -90,15 +100,20 @@ pub trait Hal {
         buffer
     }
 
+    // 从 Digest 切片复制数据到缓冲区
     fn copy_from_digest(&self, name: &'static str, slice: &[Digest]) -> Self::Buffer<Digest>;
+    // 从 Elem 切片复制数据到缓冲区
     fn copy_from_elem(&self, name: &'static str, slice: &[Self::Elem]) -> Self::Buffer<Self::Elem>;
+    // 从 ExtElem 切片复制数据到缓冲区
     fn copy_from_extelem(
         &self,
         name: &'static str,
         slice: &[Self::ExtElem],
     ) -> Self::Buffer<Self::ExtElem>;
+    // 从 u32 切片复制数据到缓冲区
     fn copy_from_u32(&self, name: &'static str, slice: &[u32]) -> Self::Buffer<u32>;
 
+    // 批量扩展并评估 NTT
     fn batch_expand_into_evaluate_ntt(
         &self,
         output: &Self::Buffer<Self::Elem>,
@@ -107,10 +122,13 @@ pub trait Hal {
         expand_bits: usize,
     );
 
+    // 批量插值 NTT
     fn batch_interpolate_ntt(&self, io: &Self::Buffer<Self::Elem>, count: usize);
 
+    // 批量位反转
     fn batch_bit_reverse(&self, io: &Self::Buffer<Self::Elem>, count: usize);
 
+    // 批量评估任意多项式
     fn batch_evaluate_any(
         &self,
         coeffs: &Self::Buffer<Self::Elem>,
@@ -120,6 +138,7 @@ pub trait Hal {
         out: &Self::Buffer<Self::ExtElem>,
     );
 
+    // 零知识移位
     fn zk_shift(&self, io: &Self::Buffer<Self::Elem>, count: usize);
 
     #[allow(clippy::too_many_arguments)]

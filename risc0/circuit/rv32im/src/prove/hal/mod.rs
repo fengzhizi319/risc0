@@ -25,9 +25,12 @@ use risc0_zkp::hal::Hal;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum StepMode {
+    ///并行模式，表示步骤可以并行执行，通常用于提高性能
     Parallel,
+    ///顺序前进模式，表示步骤按顺序从头到尾执行
     SeqForward,
     #[allow(dead_code)]
+    ///顺序反向模式，表示步骤按顺序从尾到头执行（此字段在当前代码中未使用
     SeqReverse,
 }
 
