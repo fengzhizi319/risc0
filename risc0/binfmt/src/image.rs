@@ -35,7 +35,7 @@ use crate::{elf::Program, Digestible, SystemState};
 /// This is an image of the full memory state of the zkVM, including the data,
 /// text, inputs, page table, and system memory. In addition to the memory image
 /// proper, this includes some metadata about the page table.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MemoryImage {
     /// Sparse memory image as a map from page index to page.
     pub pages: BTreeMap<u32, Vec<u8>>,
@@ -56,7 +56,7 @@ struct PersistentPageTableInfo;
 /// organizes memory into a series of memory pages similarly. In the zkVM, the "page table" is
 /// backed by a Merkle tree that verifies memory that is loaded into memory, or stored between
 /// segments.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(try_from = "PersistentPageTableInfo", into = "PersistentPageTableInfo")]
 pub struct PageTableInfo {
     /// Size of each page, in bytes.

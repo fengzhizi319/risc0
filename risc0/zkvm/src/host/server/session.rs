@@ -103,7 +103,7 @@ pub struct Session {
 /// call to the ZKP system. It does not necessarily represent an entire program;
 /// see [Session] for tracking memory transactions until a user-requested
 /// termination.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Segment {
     /// The index of this [Segment] within the [Session]
     pub index: u32,
