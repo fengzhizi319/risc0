@@ -52,24 +52,30 @@ impl CppError {
 
 pub fn ffi_wrap<F>(mut inner: F) -> Result<()>
 where
-    F: FnMut() -> *const std::os::raw::c_char,
+    F: FnMut() -> *const std::os::raw::c_char, // 泛型函数，返回指向 C 字符串的指针
 {
+    // 声明外部 C 函数，用于释放 C 字符串指针
     extern "C" {
         fn free(str: *const std::os::raw::c_char);
     }
 
+    // 调用传入的闭包函数，获取 C 字符串指针
     let c_ptr = inner();
     if c_ptr.is_null() {
+        // 如果指针为空，表示没有错误，返回 Ok
         Ok(())
     } else {
+        // 如果指针不为空，表示有错误信息
         let what = unsafe {
+            // 将 C 字符串指针转换为 Rust 字符串
             let msg = CStr::from_ptr(c_ptr)
-                .to_str()
-                .unwrap_or("Invalid error msg pointer")
-                .to_string();
-            free(c_ptr);
-            msg
+                .to_str() // 转换为 &str
+                .unwrap_or("Invalid error msg pointer") // 如果转换失败，使用默认错误信息
+                .to_string(); // 转换为 String
+            free(c_ptr); // 释放 C 字符串指针
+            msg // 返回错误信息
         };
+        // 返回包含错误信息的 Err
         Err(anyhow!(what))
     }
 }

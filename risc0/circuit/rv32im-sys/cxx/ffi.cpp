@@ -229,25 +229,34 @@ void AccumContext::calcPrefixProducts() {
 
 void do_step_exec(
     MachineContext* ctx, uint32_t mode, uint32_t last_cycle, Fp* ctrl, Fp* io, Fp* data) {
-  // printf("step_exec\n");
+  // 定义一个范围，用于性能分析
   nvtx3::scoped_range range("step_exec");
+  // 创建一个包含控制、输入输出和数据缓冲区的数组
   std::array<Fp*, 3> args{ctrl, io, data};
+
+  // 根据模式选择不同的执行方式
   switch (mode) {
   case kStepModeSeqParallel: {
+    // 并行执行模式
     auto begin = poolstl::iota_iter<uint32_t>(0);
     auto end = poolstl::iota_iter<uint32_t>(last_cycle);
+    // 并行执行每个周期的步骤计算
     std::for_each(poolstl::par, begin, end, [&](uint32_t cycle) {
       par_step_exec(ctx, ctx->steps, cycle, last_cycle, ctrl, io, data);
     });
   } break;
   case kStepModeSeqForward: {
+    // 顺序前向执行模式
     for (size_t i = 0; i < last_cycle; i++) {
+      // 顺序执行每个周期的步骤计算
       step_exec(ctx, ctx->steps, i, args.data());
     }
   } break;
   case kStepModeSeqReverse: {
+    // 顺序反向执行模式
     for (size_t i = 0; i < last_cycle; i++) {
       size_t cycle = last_cycle - i - 1;
+      // 反向顺序执行每个周期的步骤计算
       par_step_exec(ctx, ctx->steps, cycle, last_cycle, ctrl, io, data);
     }
   } break;
@@ -264,29 +273,32 @@ const char* risc0_circuit_rv32im_cpu_witgen(uint32_t mode,
                                             Fp* io,
                                             Fp* data) {
   try {
-    // printf("risc0_circuit_rv32im_cpu_witgen\n");
+    // 创建一个 MachineContext 对象，用于管理见证生成过程中的上下文信息
     MachineContext ctx(trace, steps);
 
+    // 定义一个范围迭代器，用于并行处理
     auto begin = []() { return poolstl::iota_iter<uint32_t>(0); };
     auto end = poolstl::iota_iter<uint32_t>(last_cycle);
     std::array<Fp*, 3> args{ctrl, io, data};
 
+    // 执行步骤计算
     do_step_exec(&ctx, mode, last_cycle, ctrl, io, data);
 
+    // 验证 RAM 数据
     {
       nvtx3::scoped_range range("verify_ram");
-      ctx.sortRam();
+      ctx.sortRam(); // 对 RAM 数据进行排序
 
+      // 注入 RAM 数据
       {
-        // printf("inject_backs_ram\n");
         nvtx3::scoped_range range("inject_backs_ram");
         std::for_each(poolstl::par, begin(), end, [&](uint32_t cycle) {
           inject_backs_ram(&ctx, steps, cycle, data);
         });
       }
 
+      // 验证内存步骤
       {
-        // printf("step_verify_mem\n");
         nvtx3::scoped_range range("step_verify_mem");
         std::for_each(poolstl::par, begin(), end, [&](uint32_t cycle) {
           par_step_verify_mem(&ctx, steps, cycle, last_cycle, ctrl, io, data);
@@ -294,21 +306,21 @@ const char* risc0_circuit_rv32im_cpu_witgen(uint32_t mode,
       }
     }
 
+    // 验证字节数据
     {
       nvtx3::scoped_range range("verify_bytes");
-      ctx.sortBytes();
+      ctx.sortBytes(); // 对字节数据进行排序
 
+      // 注入字节数据
       {
-        // printf("inject_backs_bytes\n");
         nvtx3::scoped_range range("inject_backs_bytes");
         std::for_each(poolstl::par, begin(), end, [&](uint32_t cycle) {
           inject_backs_bytes(&ctx, steps, cycle, data);
         });
       }
 
+      // 验证字节步骤
       {
-
-        // printf("step_verify_bytes\n");
         nvtx3::scoped_range range("step_verify_bytes");
         std::for_each(poolstl::par, begin(), end, [&](uint32_t cycle) {
           step_verify_bytes(&ctx, steps, cycle++, args.data());
@@ -316,8 +328,10 @@ const char* risc0_circuit_rv32im_cpu_witgen(uint32_t mode,
       }
     }
   } catch (const std::exception& err) {
+    // 捕获异常并返回错误信息
     return strdup(err.what());
   }
+  // 如果没有异常，返回空指针表示成功
   return nullptr;
 }
 

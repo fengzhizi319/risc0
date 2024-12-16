@@ -73,32 +73,35 @@ impl<MH: MetalHash> CircuitWitnessGenerator<MetalHal<MH>> for MetalCircuitHal<MH
     #[allow(unused)]
     fn generate_witness(
         &self,
-        mode: StepMode,
-        trace: &RawPreflightTrace,
-        steps: usize,
-        count: usize,
-        ctrl: &MetalBuffer<BabyBearElem>,
-        io: &MetalBuffer<BabyBearElem>,
-        data: &MetalBuffer<BabyBearElem>,
+        mode: StepMode, // 步骤模式，决定见证生成的执行方式
+        trace: &RawPreflightTrace, // 预飞行跟踪数据
+        steps: usize, // 步骤数
+        count: usize, // 计数
+        ctrl: &MetalBuffer<BabyBearElem>, // 控制缓冲区
+        io: &MetalBuffer<BabyBearElem>, // 输入输出缓冲区
+        data: &MetalBuffer<BabyBearElem>, // 数据缓冲区
     ) {
+        // 创建一个范围（scope）以记录见证生成的过程
         scope!("cpu_witgen");
+        // 记录调试信息，包括步骤数和计数
         tracing::debug!("witgen: {steps}, {count}");
 
-        // TODO: call metal kernels for witgen.
-        // For now we use the CPU implementation.
+        // TODO: 调用 Metal 内核进行见证生成。
+        // 目前使用 CPU 实现。
 
+        // 调用 CPU 实现的见证生成函数
         ffi_wrap(|| unsafe {
             risc0_circuit_rv32im_cpu_witgen(
-                mode as u32,
-                trace,
-                steps as u32,
-                count as u32,
-                ctrl.as_ptr() as *const BabyBearElem,
-                io.as_ptr() as *const BabyBearElem,
-                data.as_ptr() as *const BabyBearElem,
+                mode as u32, // 将步骤模式转换为 u32 类型
+                trace, // 传入RawPreflightTrace
+                steps as u32, // 将步骤数转换为 u32 类型
+                count as u32, // 将计数转换为 u32 类型
+                ctrl.as_ptr() as *const BabyBearElem, // 获取控制缓冲区的指针
+                io.as_ptr() as *const BabyBearElem, // 获取输入输出缓冲区的指针
+                data.as_ptr() as *const BabyBearElem, // 获���数据缓冲区的指针
             )
         })
-        .unwrap()
+            .unwrap() // 确保调用成功，否则会引发 panic
     }
 }
 
