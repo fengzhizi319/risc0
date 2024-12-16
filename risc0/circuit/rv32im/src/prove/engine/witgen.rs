@@ -89,7 +89,8 @@ where
                 machine.inject_exec_backs(steps, cycle, &mut offsets, &mut values);
             }
             index.push(offsets.len() as u32);
-            hal.scatter(&data, &index, &offsets, &values);
+
+            hal.scatter(&data, &index, &offsets, &values);//将values散列到data中
             });
         }
 
@@ -107,8 +108,8 @@ where
                 ZK_CYCLES,           // from_stride
                 steps - ZK_CYCLES,   // into_offset
                 steps,               // into_stride
-            );
-        });
+            );//随机噪声noise拷贝到data的末尾
+           });
         }
 
         // 复制控制数据到 ctrl 缓冲区

@@ -173,15 +173,25 @@ pub trait Hal {
     );
 
     #[allow(clippy::too_many_arguments)]
+    ///主要功能是将源缓冲区中的元素按指定的行列和偏移复制到目标缓冲区中。
+    /// 这个函数通常用于在矩阵或多维数组中进行元素的逐元素复制操作
     fn eltwise_copy_elem_slice(
         &self,
+        //目标缓冲区，元素将被复制到该缓冲区中
         into: &Self::Buffer<Self::Elem>,
+        //源缓冲区，包含要复制的元素
         from: &[Self::Elem],
+        //源缓冲区的行数
         from_rows: usize,
+        //源缓冲区的列数
         from_cols: usize,
+        //源缓冲区的列数
         from_offset: usize,
+        //源缓冲区的步幅（每行的元素数）
         from_stride: usize,
+        //目标缓冲区的起始偏移量
         into_offset: usize,
+        //目标缓冲区的步幅（每行的元素数）
         into_stride: usize,
     );
 
@@ -207,11 +217,17 @@ pub trait Hal {
         stride: usize,
     );
 
+    ///scatter将源缓冲区values中的元素分散到目标缓冲区中into。
+    ///这通常用于并行计算或 GPU 编程中，以高效地管理数据分布。
     fn scatter(
         &self,
+        //目标缓冲区，元素将被分散到该缓冲区中
         into: &Self::Buffer<Self::Elem>,
+        //索引数组，指示元素在目标缓冲区中的放置位置
         index: &[u32],
+        //应用于索引的偏移数组
         offsets: &[u32],
+        //要分散到目标缓冲区中的元素
         values: &[Self::Elem],
     );
 
