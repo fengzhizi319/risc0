@@ -34,17 +34,17 @@ pub struct SyscallRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Segment {
     #[debug(skip)]
-    pub partial_image: MemoryImage,
-    pub pre_state: SystemState,
-    pub post_state: SystemState,
+    pub partial_image: MemoryImage, // 部分内存映像，表示程序执行过程中某个时刻的内存状态
+    pub pre_state: SystemState, // 执行前的系统状态，包括寄存器和内存等信息
+    pub post_state: SystemState, // 执行后的系统状态，包括寄存器和内存等信息
     #[debug(skip)]
-    pub syscalls: Vec<SyscallRecord>,
-    pub insn_cycles: usize,
-    pub po2: usize,
-    pub exit_code: ExitCode,
-    pub index: usize,
-    pub input_digest: Digest,
-    pub output_digest: Option<Digest>,
+    pub syscalls: Vec<SyscallRecord>, // 系统调用记录，包含所有在执行过程中发生的系统调用
+    pub insn_cycles: usize, // 指令周期数，表示执行指令所花费的周期数
+    pub po2: usize, // 证明最大长度的幂次，表示证明的复杂度
+    pub exit_code: ExitCode, // 退出码，表示程序执行的结果状态
+    pub index: usize, // 段索引，表示当前段在整个程序中的位置
+    pub input_digest: Digest, // 输入摘要，表示输入数据的哈希值
+    pub output_digest: Option<Digest>, // 输出摘要，表示输出数据的哈希值（可选）
 }
 
 impl Segment {

@@ -83,17 +83,29 @@ impl<'a, H: Hal> Prover<'a, H> {
     /// Commits a given buffer to the IOP; the values must not subsequently
     /// change.
     pub fn commit_group(&mut self, tap_group_index: usize, witness: &H::Buffer<H::Elem>) {
+        // 创建一个范围（scope）以记录提交组的过程
         scope_with!("commit_group({})", witness.name());
+
+        // 获取组的大小
         let group_size = self.taps.group_size(tap_group_index);
+
+        // 确保 witness 的大小是 group_size 的整数倍
         assert_eq!(witness.size() % group_size, 0);
+
+        // 确保 witness 的大小除以 group_size 等于 cycles
         assert_eq!(witness.size() / group_size, self.cycles);
+
+        // 确保该组尚未提交
         assert!(
             self.groups[tap_group_index].is_none(),
             "Attempted to commit group {} more than once",
             self.taps.group_name(tap_group_index)
         );
 
+        // 生成多项式系数
         let coeffs = make_coeffs(self.hal, witness, group_size);
+
+        // 创建一个新的 PolyGroup 并插入到 groups 中
         let group_ref = self.groups[tap_group_index].insert(PolyGroup::new(
             self.hal,
             coeffs,
@@ -102,13 +114,15 @@ impl<'a, H: Hal> Prover<'a, H> {
             witness.name(),
         ));
 
+        // 提交 Merkle 树的根到 IOP
         group_ref.merkle.commit(&mut self.iop);
 
+        // 记录调试信息
         tracing::debug!(
-            "{} group root: {}",
-            self.taps.group_name(tap_group_index),
-            group_ref.merkle.root()
-        );
+        "{} group root: {}",
+        self.taps.group_name(tap_group_index),
+        group_ref.merkle.root()
+    );
     }
 
     /// Generates the proof and returns the seal.
