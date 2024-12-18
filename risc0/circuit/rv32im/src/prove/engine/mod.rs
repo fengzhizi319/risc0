@@ -131,7 +131,7 @@ where
             });
             //println!("io_po2: {:?}", io_po2);
 
-            // 将哈希值和向量提交到证明者中，并设置 po2
+            // 计算io_po2的hash值
             let io_po2_digest = hashfn.hash_elem_slice(&io_po2);
             prover.iop().commit(&io_po2_digest);
             prover.iop().write_field_elem_slice(io_po2.as_slice());
