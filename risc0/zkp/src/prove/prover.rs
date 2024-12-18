@@ -37,18 +37,28 @@ pub struct Prover<'a, H: Hal> {
     cycles: usize,
     po2: usize,
 }
-
 fn make_coeffs<H: Hal>(hal: &H, witness: &H::Buffer<H::Elem>, count: usize) -> H::Buffer<H::Elem> {
+    // 创建一个范围（scope）以记录生成多项式系数的过程
     scope!("make_coeffs");
+
+    // 分配一个名为 "coeffs" 的缓冲区，其大小与 witness 相同
     let coeffs = hal.alloc_elem("coeffs", witness.size());
+
+    // 将 witness 的元素逐个复制到 coeffs 中
     hal.eltwise_copy_elem(&coeffs, witness);
-    // Do interpolate
+
+    // 对 coeffs 进行批量插值操作，Do interpolate
     hal.batch_interpolate_ntt(&coeffs, count);
-    // Convert f(x) -> f(3x), which effective multiplies coefficients c_i by 3^i.
+
+    // 将 f(x) 转换为 f(3x)，这实际上是将系数 c_i 乘以 3^i
+    //// Convert f(x) -> f(3x), which effective multiplies coefficients c_i by 3^i.
     #[cfg(not(feature = "circuit_debug"))]
     hal.zk_shift(&coeffs, count);
+
+    // 返回生成的多项式系数
     coeffs
 }
+
 
 impl<'a, H: Hal> Prover<'a, H> {
     /// Creates a new prover.
