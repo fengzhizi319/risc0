@@ -89,7 +89,7 @@ where
         let trace = segment.preflight()?;
         // 调用 segment.prepare_globals() 函数准备全局变量
         let io = segment.prepare_globals();
-        println!("io: {:?}", io);
+        //println!("io: {:?}", io);
 
         // 创建一个 WitnessGenerator 实例，用于生成见证数据
         let witgen = WitnessGenerator::new(
