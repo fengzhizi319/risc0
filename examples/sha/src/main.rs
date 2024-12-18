@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use clap::Parser;
-use risc0_zkvm::{default_prover, sha::Digest, ExecutorEnv, Receipt};
+use risc0_zkvm::{ sha::Digest, ExecutorEnv, Receipt};
+use risc0_zkvm::host::server::prove::get_local_prover;
 use sha_methods::{HASH_ELF, HASH_ID, HASH_RUST_CRYPTO_ELF};
 
 /// Hash the given bytes, returning the digest and a [Receipt] that can
@@ -40,7 +41,8 @@ fn provably_hash(input: &str, use_rust_crypto: bool) -> (Digest, Receipt) {
     };
 
     // Obtain the default prover.
-    let prover = default_prover();
+    //let prover = default_prover();
+    let prover = get_local_prover().unwrap();
 
     // Produce a receipt by proving the specified ELF binary.
     let receipt = prover.prove(env, elf).unwrap().receipt;
@@ -59,13 +61,19 @@ fn main() {
     // Parse command line
     let args = Cli::parse();
 
-    // Prove hash the message.
+    // Measure the time taken to prove hash the message.
+    let start = std::time::Instant::now();
     let (digest, receipt) = provably_hash(&args.message, false);
+    let duration = start.elapsed();
+    println!("Time taken for provably_hash: {:?}", duration);
 
-    // Verify the receipt, ensuring the prover knows a valid SHA-256 preimage.
+    // Measure the time taken to verify the receipt.
+    let start = std::time::Instant::now();
     receipt
         .verify(HASH_ID)
         .expect("receipt verification failed");
+    let duration = start.elapsed();
+    println!("Time taken for verify: {:?}", duration);
 
     println!("I provably know data whose SHA-256 hash is {}", digest);
 }

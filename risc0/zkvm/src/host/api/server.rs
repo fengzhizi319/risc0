@@ -195,7 +195,10 @@ impl CoprocessorProxy {
 }
 
 impl CoprocessorCallback for CoprocessorProxy {
+    /// 处理 ZKR 证明请求的系统调用函数。这个函数实现了一个系统调用，
+    /// 用于处理 ZKR（零知识证明）请求。它将请求发送到连接，并处理响应
     fn prove_zkr(&mut self, proof_request: ProveZkrRequest) -> Result<()> {
+        // 构建服务器回复消息
         let request = pb::api::ServerReply {
             kind: Some(pb::api::server_reply::Kind::Ok(pb::api::ClientCallback {
                 kind: Some(pb::api::client_callback::Kind::Io(pb::api::OnIoRequest {
@@ -214,13 +217,22 @@ impl CoprocessorCallback for CoprocessorProxy {
                 })),
             })),
         };
+
+        // 记录发送的消息
         tracing::trace!("tx: {request:?}");
+
+        // 发送请求并接收回复
         let reply: pb::api::OnIoReply = self.conn.send_recv(request).map_io_err()?;
+
+        // 记录接收的消息
         tracing::trace!("rx: {reply:?}");
 
+        // 检查回复的类型
         let kind = reply.kind.ok_or("Malformed message").map_io_err()?;
         match kind {
+            // 如果回复是 Ok，则返回成功
             pb::api::on_io_reply::Kind::Ok(_) => Ok(()),
+            // 如果回复是错误，则返回错误
             pb::api::on_io_reply::Kind::Error(err) => Err(err.into()),
         }
     }

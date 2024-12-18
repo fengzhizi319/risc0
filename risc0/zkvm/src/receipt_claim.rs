@@ -84,7 +84,7 @@ impl ReceiptClaim {
                 journal: journal.into(),
                 assumptions: MaybePruned::Pruned(Digest::ZERO),
             })
-            .into(),
+                .into(),
         }
     }
 
@@ -106,7 +106,7 @@ impl ReceiptClaim {
                 journal: journal.into(),
                 assumptions: MaybePruned::Pruned(Digest::ZERO),
             })
-            .into(),
+                .into(),
         }
     }
 
@@ -585,14 +585,17 @@ impl std::error::Error for PrunedValueError {}
 ///
 /// Viewing the two structs as Merkle trees, in which subtrees may be pruned, the result of this
 /// operation is a tree with a set of nodes equal to the union of the set of nodes for each input.
+/// 合并包含 [MaybePruned] 字段的两个结构体，以生成一个包含两个输入中所有字段的联合的结果结构体。
+///
+/// 将这两个结构体视为 Merkle 树，其中子树可能被修剪，操作的结果是一个节点集合等于每个输入的节点集合的联合的树。
 #[cfg(feature = "prove")]
 pub(crate) trait Merge: Digestible + Sized {
-    /// Merge two structs to produce an output with a union of the fields populated in the inputs.
+    /// 合并两个结构体以生成一个包含输入中所有字段的联合的输出。
     fn merge(&self, other: &Self) -> Result<Self, MergeInequalityError>;
 
-    /// Merge two structs to assigning self as the union of the fields populated in the two inputs.
+    /// 合并两个结构体，将 self 赋值为两个输入中所有字段的联合。
     fn merge_with(&mut self, other: &Self) -> Result<(), MergeInequalityError> {
-        // Not a very efficient implementation.
+        // 不是一个非常高效的实现。
         *self = self.merge(other)?;
         Ok(())
     }
@@ -632,6 +635,7 @@ impl MergeLeaf for Vec<u8> {}
 #[cfg(feature = "prove")]
 impl<T: MergeLeaf> Merge for T {
     fn merge(&self, other: &Self) -> Result<Self, MergeInequalityError> {
+        // 如果两个值不相等，则返回合并不等错误
         if self != other {
             return Err(MergeInequalityError(
                 self.digest::<sha::Impl>(),
@@ -639,6 +643,7 @@ impl<T: MergeLeaf> Merge for T {
             ));
         }
 
+        // 否则，返回克隆的值
         Ok(self.clone())
     }
 }
@@ -649,6 +654,7 @@ where
     T: Merge + Serialize + Clone,
 {
     fn merge(&self, other: &Self) -> Result<Self, MergeInequalityError> {
+        // 检查两个值的摘要是否相等
         let check_eq = || {
             if self.digest::<sha::Impl>() != other.digest::<sha::Impl>() {
                 Err(MergeInequalityError(
@@ -660,10 +666,13 @@ where
             }
         };
 
+        // 根据两个值的不同组合进行合并
         Ok(match (self, other) {
+            // 如果两个值都未被修剪，则合并它们
             (MaybePruned::Value(left), MaybePruned::Value(right)) => {
                 MaybePruned::Value(left.merge(right)?)
             }
+            // 如果一个值未被修剪，另一个值被修剪，则检查它们的摘要是否相等
             (MaybePruned::Value(_), MaybePruned::Pruned(_)) => {
                 check_eq()?;
                 self.clone()
@@ -672,6 +681,7 @@ where
                 check_eq()?;
                 other.clone()
             }
+            // 如果两个值都被修剪，则检查它们的摘要是否相等
             (MaybePruned::Pruned(_), MaybePruned::Pruned(_)) => {
                 check_eq()?;
                 self.clone()
@@ -684,8 +694,11 @@ where
 impl<T: Merge> Merge for Option<T> {
     fn merge(&self, other: &Self) -> Result<Self, MergeInequalityError> {
         match (self, other) {
+            // 如果两个值都存在，则合并它们
             (Some(left), Some(right)) => Some(left.merge(right)).transpose(),
+            // 如果两个值都不存在，则返回 None
             (None, None) => Ok(None),
+            // 否则，返回合并不等错误
             _ => Err(MergeInequalityError(
                 self.digest::<sha::Impl>(),
                 other.digest::<sha::Impl>(),
@@ -697,12 +710,14 @@ impl<T: Merge> Merge for Option<T> {
 #[cfg(feature = "prove")]
 impl Merge for Assumptions {
     fn merge(&self, other: &Self) -> Result<Self, MergeInequalityError> {
+        // 如果两个 Assumptions 的长度不相等，则返回合并不等错误
         if self.0.len() != other.0.len() {
             return Err(MergeInequalityError(
                 self.digest::<sha::Impl>(),
                 other.digest::<sha::Impl>(),
             ));
         }
+        // 否则，合并每个元素并返回新的 Assumptions
         Ok(Assumptions(
             self.0
                 .iter()
@@ -723,6 +738,7 @@ impl Merge for Input {
 #[cfg(feature = "prove")]
 impl Merge for Output {
     fn merge(&self, other: &Self) -> Result<Self, MergeInequalityError> {
+        // 合并 journal 和 assumptions 字段
         Ok(Self {
             journal: self.journal.merge(&other.journal)?,
             assumptions: self.assumptions.merge(&other.assumptions)?,
@@ -733,12 +749,14 @@ impl Merge for Output {
 #[cfg(feature = "prove")]
 impl Merge for ReceiptClaim {
     fn merge(&self, other: &Self) -> Result<Self, MergeInequalityError> {
+        // 如果两个 ReceiptClaim 的 exit_code 不相等，则返回合并不等错误
         if self.exit_code != other.exit_code {
             return Err(MergeInequalityError(
                 self.digest::<sha::Impl>(),
                 other.digest::<sha::Impl>(),
             ));
         }
+        // 否则，合并每个字段并返回新的 ReceiptClaim
         Ok(Self {
             pre: self.pre.merge(&other.pre)?,
             post: self.post.merge(&other.post)?,
@@ -773,7 +791,7 @@ mod tests {
                     input: x.input.clone(),
                     output: x.output.rand_prune(),
                 }
-                .into(),
+                    .into(),
                 (Self::Pruned(x), _) => Self::Pruned(*x),
             }
         }
@@ -787,7 +805,7 @@ mod tests {
                     pc: x.pc,
                     merkle_root: x.merkle_root,
                 }
-                .into(),
+                    .into(),
                 (Self::Pruned(x), _) => Self::Pruned(*x),
             }
         }
@@ -837,17 +855,17 @@ mod tests {
                 merkle_root: Digest::from_hex(
                     "9095da07d84ccc170c5113e3dafdf0531700f0b3f0c627acc9f0329440d984fa",
                 )
-                .unwrap(),
+                    .unwrap(),
             }
-            .into(),
+                .into(),
             post: SystemState {
                 pc: 2297164,
                 merkle_root: Digest::from_hex(
                     "223651656250c0cf2f1c3f8923ef3d2c8624a361830492ffec6450e1930fb07d",
                 )
-                .unwrap(),
+                    .unwrap(),
             }
-            .into(),
+                .into(),
             exit_code: ExitCode::Halted(0),
             input: None.into(),
             output: MaybePruned::Value(Some(Output {

@@ -93,21 +93,22 @@ impl ProverServer for ProverImpl {
 
         // 将输出合并到最后一个段中
         segments
-            .last_mut()
-            .ok_or(anyhow!("session is empty"))?
-            .claim
-            .output
-            .merge_with(
-                &session
-                    .journal
-                    .as_ref()
-                    .map(|journal| Output {
-                        journal: MaybePruned::Pruned(journal.digest()),
-                        assumptions: assumptions.into(),
-                    })
-                    .into(),
+            .last_mut() // 获取最后一个段的可变引用
+            .ok_or(anyhow!("session is empty"))? // 如果没有段，则返回错误
+            .claim // 获取段的证明信息
+            .output // 获取声明的输出
+            .merge_with( // 将输出与会话的日志和假设合并
+                         &session
+                             .journal // 获取会话的日志
+                             .as_ref() // 将日志转换为引用
+                             .map(|journal| Output { // 如果日志存在，则创建一个新的输出
+                                 journal: MaybePruned::Pruned(journal.digest()), // 将日志的摘要设置为输出的日志
+                                 assumptions: assumptions.into(), // 将假设转换为输出的假设
+                             })
+                             .into(), // 将 Option 转换为 MaybePruned
             )
-            .context("failed to merge output into final segment claim")?;
+            .context("failed to merge output into final segment claim")?; // 如果合并失败，则返回错误
+
 
         // 获取验证参数
         let verifier_parameters = ctx

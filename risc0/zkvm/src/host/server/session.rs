@@ -91,6 +91,9 @@ pub struct Session {
     pub post_state: SystemState,
 
     /// A list of pending ZKR proof requests.
+    /// pending_zkrs 是一个存储待处理 ZKR（零知识证明）请求的列表。在系统调用过程中，
+    /// 如果没有可用的协处理器来处理 ZKR 请求，这些请求会被添加到 pending_zkrs 列表中，
+    /// 以便稍后处理。这个列表中的每个请求包含控制 ID 和输入数据，用于生成零知识证明。
     // TODO: make this scalable so we don't OOM
     pub(crate) pending_zkrs: Vec<ProveZkrRequest>,
 }
