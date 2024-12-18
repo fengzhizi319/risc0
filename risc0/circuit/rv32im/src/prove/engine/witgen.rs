@@ -38,9 +38,13 @@ pub(crate) struct WitnessGenerator<H>
 where
     H: Hal<Field = BabyBear, Elem = BabyBearElem, ExtElem = BabyBearExtElem>,
 {
+    // 表示步骤数，即电路执行的总周期数
     pub steps: usize,
+    // 控制缓冲区，用于存储控制寄存器的数据
     pub ctrl: H::Buffer<H::Elem>,
+    // 数据缓冲区，用于存储数据寄存器的数据
     pub data: H::Buffer<H::Elem>,
+    // 输入输出缓冲区，用于存储输入输出寄存器的数据
     pub io: H::Buffer<H::Elem>,
 }
 
@@ -128,7 +132,7 @@ where
             &data,
         );
 
-        // 清零 data 和 io 缓冲区中的无效��目
+        // 清零 data 和 io 缓冲区中的无效条目
         scope!("zeroize", {
         hal.eltwise_zeroize_elem(&data);
         hal.eltwise_zeroize_elem(&io);
