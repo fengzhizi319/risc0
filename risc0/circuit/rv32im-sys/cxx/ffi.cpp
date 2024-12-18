@@ -337,15 +337,25 @@ const char* risc0_circuit_rv32im_cpu_witgen(uint32_t mode,
 
 void risc0_circuit_rv32im_step_compute_accum(
     risc0_error* err, void* ctx, size_t steps, size_t cycle, Fp** args) {
+  // 使用 ffi_wrap 包装函数调用，捕获并处理可能的错误
   ffi_wrap<uint32_t>(err, 0, [&] {
+    // 打印调试信息
     // printf("step_compute_accum(%p, %lu, %lu, %p)\n", ctx, steps, cycle, args);
+
+    // 将上下文指针转换为 AccumContext 类型
     AccumContext* actx = static_cast<AccumContext*>(ctx);
+
+    // 如果当前周期为 0 或者当前周期是并行安全的
     if (cycle == 0 || actx->isParSafe[cycle]) {
+      // 调用 step_compute_accum 函数进行累加计算
       circuit::rv32im::step_compute_accum(ctx, steps, cycle++, args);
+
+      // 继续处理后续周期，直到遇到不安全的周期
       while (cycle < steps && !actx->isParSafe[cycle]) {
         circuit::rv32im::step_compute_accum(ctx, steps, cycle++, args);
       }
     }
+    // 返回 0 表示成功
     return 0;
   });
 }
