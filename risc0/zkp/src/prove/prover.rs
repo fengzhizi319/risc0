@@ -57,6 +57,7 @@ impl<'a, H: Hal> Prover<'a, H> {
             hal,
             taps,
             iop: WriteIOP::new(hal.get_hash_suite().rng.as_ref()),
+            //生成了一个包含 taps.num_groups() 个 None 值的向量
             groups: std::iter::repeat_with(|| None)
                 .take(taps.num_groups())
                 .collect(),
