@@ -89,6 +89,7 @@ where
         let trace = segment.preflight()?;
         // 调用 segment.prepare_globals() 函数准备全局变量
         let io = segment.prepare_globals();
+        println!("io: {:?}", io);
 
         // 创建一个 WitnessGenerator 实例，用于生成见证数据
         let witgen = WitnessGenerator::new(
@@ -99,6 +100,8 @@ where
             &trace,
             StepMode::Parallel,
         );
+        // println!("witgen.io: {:?}", witgen.io.clone().to_vec());
+        // println!("io: {:?}", io);
         let steps = witgen.steps;
 
         // 返回证明结果
@@ -117,7 +120,7 @@ where
                 .iop()
                 .commit(&hashfn.hash_elem_slice(&CircuitImpl::CIRCUIT_INFO.encode()));
 
-            // 将全局变量和 po2 连接成一个向量，并计算其哈希值
+            // 将io复制给io_po2，并将io_po2的最后一个元素设置为segment.po2
             let mut io_po2 = vec![BabyBearElem::ZERO; io.len() + 1];
             witgen.io.view_mut(|view| {
                 for (i, elem) in view.iter_mut().enumerate() {
@@ -126,6 +129,7 @@ where
                 }
                 io_po2[io.len()] = BabyBearElem::new_raw(segment.po2 as u32);
             });
+            //println!("io_po2: {:?}", io_po2);
 
             // 将哈希值和向量提交到证明者中，并设置 po2
             let io_po2_digest = hashfn.hash_elem_slice(&io_po2);
