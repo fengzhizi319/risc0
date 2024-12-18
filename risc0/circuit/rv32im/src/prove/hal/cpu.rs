@@ -80,7 +80,7 @@ impl CircuitWitnessGenerator<CpuHal<BabyBear>> for CpuCircuitHal {
                 data.as_slice().as_ptr(),
             )
         })
-        .unwrap();
+            .unwrap();
     }
 }
 
@@ -156,6 +156,7 @@ where
         steps: usize,
     ) {
         {
+            // 将所有输入缓冲区转换为同步切片
             let args = &[
                 ctrl.as_slice_sync(),
                 io.as_slice_sync(),
@@ -164,30 +165,35 @@ where
                 accum.as_slice_sync(),
             ];
 
+            // 分配累加器上下文
             let accum_ctx = CIRCUIT.alloc_accum_ctx(steps, &preflight.is_par_safe);
 
-            // TODO: use preflight
+            // 计算累加器的每一步
             scope!("step_compute_accum", {
-                (0..steps - ZK_CYCLES).into_par_iter().for_each(|cycle| {
-                    CIRCUIT
-                        .par_step_compute_accum(steps, cycle, &accum_ctx, args)
-                        .unwrap();
-                });
+            (0..steps - ZK_CYCLES).into_par_iter().for_each(|cycle| {
+                CIRCUIT
+                    .par_step_compute_accum(steps, cycle, &accum_ctx, args)
+                    .unwrap();
             });
+        });
+
+            // 计算前缀积
             scope!("calc_prefix_products", {
-                CIRCUIT.calc_prefix_products(&accum_ctx).unwrap();
-            });
+            CIRCUIT.calc_prefix_products(&accum_ctx).unwrap();
+        });
+
+            // 验证累加器的每一步
             scope!("step_verify_accum", {
-                (0..steps - ZK_CYCLES).into_par_iter().for_each(|cycle| {
-                    CIRCUIT
-                        .par_step_verify_accum(steps, cycle, &accum_ctx, args)
-                        .unwrap();
-                });
+            (0..steps - ZK_CYCLES).into_par_iter().for_each(|cycle| {
+                CIRCUIT
+                    .par_step_verify_accum(steps, cycle, &accum_ctx, args)
+                    .unwrap();
             });
+        });
         }
 
         {
-            // Zero out 'invalid' entries in accum and io
+            // 将 accum 和 io 中的无效条目置零
             let mut accum_slice = accum.as_slice_mut();
             let mut io = io.as_slice_mut();
             for value in accum_slice.iter_mut().chain(io.iter_mut()) {
