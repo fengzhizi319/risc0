@@ -168,26 +168,22 @@ butterfly!(3, 2);
 butterfly!(2, 1);
 butterfly!(1, 0);
 
-/// Perform a reverse butterfly transform of a buffer of (1 << n) numbers.
-/// The result of this computation is a discrete Fourier transform, but with
-/// changed indices. This is described [here](https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm#Data_reordering,_bit_reversal,_and_in-place_algorithms).
-/// The output of `rev_butterfly(io, n)` at index i is the sum over k from 0 to
-/// 2^n-1 of io\[k\] ROU_REV\[n\]^(k i'), where i' is i bit-reversed as an
-/// n-bit number and ROU_REV are the 'reverse' roots of unity.
+/// 执行一个大小为 (1 << n) 的缓冲区的逆蝶形变换。
+/// 该计算的结果是一个离散傅里叶变换（DFT），但索引发生了变化。
+/// 详细描述请参考[这里](https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm#Data_reordering,_bit_reversal,_and_in-place_algorithms)。
+/// `rev_butterfly(io, n)` 的输出在索引 i 处是 io\[k\] ROU_REV\[n\]^(k i') 的和，其中 i' 是 i 作为 n 位数的位反转，ROU_REV 是“逆”单位根。
 ///
-/// As an example, we'll work through a trace of the rev_butterfly algorithm
-/// with n = 3 on a list of length 8. Let w = ROU_REV\[3\] be the eighth root of
-/// unity. We start with
+/// 例如，我们将通过 n = 3 的 rev_butterfly 算法的跟踪来处理一个长度为 8 的列表。设 w = ROU_REV\[3\] 为第八根单位根。我们从
 ///
-///   \[a0, a1, a2, a3, a4, a5, a6, a7\]
+///   \[a0, a1, a2, a3, a4, a5, a6, a7\] 开始
 ///
-/// After the loop, before the first round of recursive calls, we have
+/// 在循环之后，在第一次递归调用之前，我们有
 ///
 ///   [a0+a4, a1+a5,     a2+a6,         a3+a7,
 ///
 ///    a0-a4, a1w-a5w, a2w^2-a6w^2, a3w^3-a7w^3]
 ///
-/// After first round of recursive calls, we have
+/// 在第一次递归调用之后，我们有
 ///
 ///   [a0+a4+a2+a6,         a1+a5+a3+a7,
 ///
@@ -197,7 +193,7 @@ butterfly!(1, 0);
 ///
 ///    a0-a4-a2w^2+a6w^2, a1w^3-a5w^3-a3w^5+a7w^5]
 ///
-/// And after the second round of recursive calls, we have
+/// 在第二次递归调用之后，我们有
 ///
 ///   [a0+a4+a2+a6+a1+a5+a3+a7,
 ///
@@ -215,7 +211,7 @@ butterfly!(1, 0);
 ///
 ///    a0-a4-a2w^2+a6w^2-a1w^3+a5w^3-a3w^5+a7w^5]
 ///
-/// Rewriting this, we get
+/// 重写这个，我们得到
 ///
 ///   \[sum_k ak w^0,
 ///    sum_k ak w^4k,
@@ -226,18 +222,20 @@ butterfly!(1, 0);
 ///    sum_k ak w^3k,
 ///    sum_k ak w^7k\]
 ///
-/// The exponent multiplicands in the sum arise from reversing the indices as
-/// three-bit numbers. For example, 3 is 011 in binary, which reversed is 110,
-/// which is 6. So i' in the exponent of the index-3 value is 6.
+/// 和中的指数乘数来自将索引作为三位数反转。例如，3 是二进制的 011，反转后是 110，即 6。因此，索引 3 值的指数中的 i' 是 6。
 pub fn interpolate_ntt<B, T>(io: &mut [T])
 where
-    // B is a base field element, T may be either base or extension
+// B 是一个基本域元素，T 可以是基本或扩展元素
     B: Elem + RootsOfUnity,
     T: Copy + Mul<B, Output = T> + Add<Output = T> + Sub<Output = T>,
 {
+    // 获取输入数组的大小
     let size = io.len();
+    // 计算大小的对数，以确定数组的长度是否为 2 的幂
     let n = log2_ceil(size);
+    // 确保数组的长度是 2 的 n 次幂
     assert_eq!(1 << n, size);
+    // 根据 n 的值调用相应的逆蝶形变换函数
     match n {
         0 => rev_butterfly_0::<B, T>(io),
         1 => rev_butterfly_1(io),
@@ -274,7 +272,9 @@ where
         32 => rev_butterfly_32(io),
         _ => unreachable!(),
     }
+    // 计算归一化因子
     let norm = B::from_u64(size as u64).inv();
+    // 对数组中的每个元素进行归一化处理
     for x in io.iter_mut().take(size) {
         *x = *x * norm;
     }
@@ -283,7 +283,7 @@ where
 /// Perform a forward butterfly transform of a buffer of (1 << n) numbers.
 pub fn evaluate_ntt<B, T>(io: &mut [T], expand_bits: usize)
 where
-    // B is a base field element, T may be either base or extension
+// B is a base field element, T may be either base or extension
     B: Elem + RootsOfUnity,
     T: Copy + Mul<B, Output = T> + Add<Output = T> + Sub<Output = T>,
 {

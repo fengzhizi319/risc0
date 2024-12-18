@@ -39,6 +39,11 @@ impl Drop for NvtxRange {
 }
 
 /// Opens a scope.
+ /*
+ scope 宏的主要作用是打开一个scope，用于性能分析和调试。它通过创建一个 NvtxRange 实例来标记代码块的开始和结束，
+ 并使用 puffin 库记录性能数据。这样可以帮助开发者在代码执行过程中收集和分析性能数据，找出性能瓶颈和优化点。
+  */
+
 #[macro_export]
 macro_rules! scope {
     ($name:expr) => {

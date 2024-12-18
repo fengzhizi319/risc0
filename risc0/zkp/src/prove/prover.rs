@@ -111,7 +111,6 @@ impl<'a, H: Hal> Prover<'a, H> {
             "Attempted to commit group {} more than once",
             self.taps.group_name(tap_group_index)
         );
-
         // 生成多项式系数
         let coeffs = make_coeffs(self.hal, witness, group_size);
 
@@ -132,7 +131,7 @@ impl<'a, H: Hal> Prover<'a, H> {
         "{} group root: {}",
         self.taps.group_name(tap_group_index),
         group_ref.merkle.root()
-    );
+        );
     }
 
     /// Generates the proof and returns the seal.

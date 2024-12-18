@@ -137,11 +137,11 @@ where
             prover.iop().write_field_elem_slice(io_po2.as_slice());
             prover.set_po2(segment.po2);
 
-            // 将控制和数据寄存器组提交到证明者中
+            // 生成多项式
             prover.commit_group(REGISTER_GROUP_CTRL, &witgen.ctrl);
             prover.commit_group(REGISTER_GROUP_DATA, &witgen.data);
 
-            // 生成混合值并提交到证明者中
+            // 生成MIX_SIZE个随机值
             let mix: Vec<_> = scope!(
                 "mix",
                 (0..CircuitImpl::MIX_SIZE)

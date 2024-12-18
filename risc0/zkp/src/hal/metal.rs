@@ -591,17 +591,28 @@ impl<MH: MetalHash> Hal for MetalHal<MH> {
     }
 
     fn batch_interpolate_ntt(&self, io: &Self::Buffer<Self::Elem>, count: usize) {
+        // 创建一个范围（scope）以记录批量插值 NTT 的过程
         scope!("batch_interpolate_ntt");
+        // 记录调试信息，输出 io 的大小和 count
         tracing::debug!("io: {}, count: {count}", io.size());
+        // 计算每行的大小
         let row_size = io.size() / count;
+        // 确保行大小和 count 的乘积等于 io 的大小
         assert_eq!(row_size * count, io.size());
+        // 计算行大小的二进制位数
         let n_bits = log2_ceil(row_size);
+        // 确保行大小是 2 的 n_bits 次方
         assert_eq!(row_size, 1 << n_bits);
+        // 确保 n_bits 小于最大 ROU 的幂次
         assert!(n_bits < Self::Elem::MAX_ROU_PO2);
 
+        // 从元素中复制 ROU_REV
         let rou = self.copy_from_elem("rou", Self::Elem::ROU_REV);
+        // 获取多步 NTT 反向步骤的内核
         let kernel = self.kernels.get("multi_ntt_rev_step").unwrap();
+        // 反向迭代 s_bits，从 1 到 n_bits
         for s_bits in (1..=n_bits).rev() {
+            // 设置内核参数
             let args = &[
                 io.as_arg(),
                 rou.as_arg(),
@@ -609,12 +620,17 @@ impl<MH: MetalHash> Hal for MetalHal<MH> {
                 KernelArg::Integer(s_bits as u32),
                 KernelArg::Integer(count as u32),
             ];
+            // 计算启动参数
             let params = compute_launch_params(n_bits as u32, s_bits as u32, count as u32);
+            // 调度内核执行
             self.dispatch(kernel, args, count as u64, Some(params));
         }
 
+        // 计算归一化因子
         let norm = self.copy_from_elem("norm", &[Self::Elem::new(row_size as u32).inv()]);
+        // 设置内核参数
         let args = &[io.as_arg(), norm.as_arg()];
+        // 调度 eltwise_mul_factor_fp 内核执行
         self.dispatch_by_name("eltwise_mul_factor_fp", args, io.size() as u64);
     }
 

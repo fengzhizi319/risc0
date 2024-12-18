@@ -339,15 +339,19 @@ impl<F: Field> Hal for CpuHal<F> {
         }
     }
 
-    fn batch_interpolate_ntt(&self, io: &Self::Buffer<Self::Elem>, count: usize) {
-        let row_size = io.size() / count;
-        assert_eq!(row_size * count, io.size());
-        io.as_slice_mut()
-            .par_chunks_exact_mut(row_size)
-            .for_each(|row| {
-                interpolate_ntt::<Self::Elem, Self::Elem>(row);
-            });
-    }
+fn batch_interpolate_ntt(&self, io: &Self::Buffer<Self::Elem>, count: usize) {
+    // 计算每行的大小
+    let row_size = io.size() / count;
+    // 确保行大小和 count 的乘积等于 io 的大小
+    assert_eq!(row_size * count, io.size());
+    // 将 io 缓冲区按行大小进行分块，并对每一块进行并行处理
+    io.as_slice_mut()
+        .par_chunks_exact_mut(row_size)
+        .for_each(|row| {
+            // 对每一行进行插值操作
+            interpolate_ntt::<Self::Elem, Self::Elem>(row);
+        });
+}
 
     fn batch_bit_reverse(&self, io: &Self::Buffer<Self::Elem>, count: usize) {
         let row_size = io.size() / count;
