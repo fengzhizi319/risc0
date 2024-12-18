@@ -151,7 +151,7 @@ where
 
             let mix = scope!("copy(mix)", self.hal.copy_from_elem("mix", mix.as_slice()));
 
-            // 分配累加器并添加随机噪声
+            // 分配并初始化一个累加器（accum），用于后续的累加操作
             let accum = scope!(
                 "alloc(accum)",
                 self.hal.alloc_elem_init(
@@ -166,6 +166,7 @@ where
                 let mut rng = thread_rng();
                 let noise =
                     vec![BabyBearElem::random(&mut rng); ZK_CYCLES * CIRCUIT.accum_size()];
+                // 将noise添加到accum中
                 self.hal.eltwise_copy_elem_slice(
                     &accum,
                     &noise,
