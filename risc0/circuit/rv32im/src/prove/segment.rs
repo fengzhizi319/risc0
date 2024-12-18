@@ -48,6 +48,7 @@ pub struct Segment {
 }
 
 impl Segment {
+    //input_digest||pre_state.pc||merkle_root
     pub fn prepare_globals(&self) -> Vec<Elem> {
         scope!("prepare_globals");
 
