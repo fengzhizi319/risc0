@@ -21,7 +21,8 @@ clap = { version = "4.5", features = ["derive"] }
 puffin = "0.19"
 puffin_http = "0.16"
 risc0-bigint2-methods = { path = "methods" }
-risc0-zkvm = { workspace = true, features = ["prove"] }
+#risc0-zkvm = { workspace = true, features = ["prove"] }
+risc0-zkvm = { path = "../../risc0/zkvm", features = ["prove", "client"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 num-bigint = { version = "0.4", default-features = false, features = ["serde"] }
@@ -29,7 +30,7 @@ num-bigint-dig = { version = "0.8", default-features = false, features = ["serde
 anyhow = "1.0"
 
 [features]
-cuda = ["risc0-zkvm/cuda"]
+#cuda = ["risc0-zkvm/cuda"]
 default = []
 num-bigint-dig = ["dep:num-bigint-dig"]
 num-bigint = ["dep:num-bigint"]

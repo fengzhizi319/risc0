@@ -14,7 +14,8 @@
 
 use clap::Parser;
 use risc0_bigint2_methods::RSA_ELF;
-use risc0_zkvm::{default_prover, ExecutorEnv};
+use risc0_zkvm::{ ExecutorEnv};
+use risc0_zkvm::host::server::prove::get_local_prover;
 
 #[derive(Parser)]
 struct Args {
@@ -43,8 +44,9 @@ fn main() {
     }
 
     let env = ExecutorEnv::builder().build().unwrap();
-    let prover = default_prover();
-    prover.prove(env, RSA_ELF).unwrap();
+    let prover = get_local_prover().unwrap();
+    let prov=prover.prove(env, RSA_ELF);
+    let _session = prov.unwrap();
 
     if args.puffin {
         puffin::GlobalProfiler::lock().new_frame();

@@ -41,6 +41,7 @@ fn modpow_65537() {
     assert_eq!(session.exit_code, ExitCode::Halted(0));
     let result: BigUint = session.journal.as_ref().unwrap().decode().unwrap();
     assert_eq!(result, expected);
+    println!("result:helloooooo");
 
     let prover = get_prover_server(&ProverOpts::fast()).unwrap();
     prover
