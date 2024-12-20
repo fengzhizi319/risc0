@@ -198,7 +198,7 @@ impl<'a> ExecutorImpl<'a> {
                 inner, // 内部段数据
                 output, // 段的输出
             };
-            println!("segment: {:?}", segment);
+            //println!("segment: {:?}", segment);
             // 使用回调函数处理段并存储引用
             let segment_ref = callback(segment)?; // 调用回调函数处理新创建的段，并获取处理后的段引用
             refs.push(segment_ref); // 将处理后的段引用存储在 refs 向量中

@@ -15,7 +15,8 @@
 use password_checker_core::PasswordRequest;
 use password_checker_methods::PW_CHECKER_ELF;
 use rand::prelude::*;
-use risc0_zkvm::{default_prover, sha::Digest, ExecutorEnv};
+use risc0_zkvm::{sha::Digest, ExecutorEnv};
+use risc0_zkvm::host::server::prove::get_local_prover;
 
 fn main() {
     let mut rng = StdRng::from_entropy();
@@ -38,11 +39,20 @@ fn password_checker(request: PasswordRequest) -> Digest {
         .build()
         .unwrap();
 
+    use std::time::Instant;
+
     // Obtain the default prover.
-    let prover = default_prover();
+    let start = Instant::now();
+    let prover = get_local_prover().unwrap();
+    //let prover = default_prover();
+    let duration = start.elapsed();
+    println!("Time taken to get prover: {:?}", duration);
 
     // Produce a receipt by proving the specified ELF binary.
+    let start = Instant::now();
     let receipt = prover.prove(env, PW_CHECKER_ELF).unwrap().receipt;
+    let duration = start.elapsed();
+    println!("Time taken to prove: {:?}", duration);
 
     receipt.journal.decode().unwrap()
 }
